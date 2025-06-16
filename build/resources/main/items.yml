@@ -1,0 +1,209 @@
+custom-items:
+  tracker:
+    value:
+      base: 50.0
+      per-use: 20.0
+  uav:
+    value:
+      base: 75.0
+      per-use: 25.0
+  jammer:
+    value:
+      base: 100.0
+  chronos_shard:
+    value:
+      base: 150.0
+  manual_boost:
+    value:
+      base: 200.0
+  manual_frenzy:
+    value:
+      base: 300.0
+  reverse_bounty:
+    value:
+      base: 250.0
+  other_plugins:
+    example_item:
+      nbt_key: "ItemsAdder:item_id"
+      nbt_value: "dragon_sword"
+      value:
+        base: 500.0
+
+tracker:
+  item-name: "&6&lBounty Tracker"
+  item-lore:
+    - "&7Right-click to track the nearest player"
+    - "&7within a &e%radius% &7block radius"
+    - "&c&lUses: &f%uses%&c/&f%max_uses%"
+    - ""
+    - "&eThis compass will point to your"
+    - "&etarget for &a%duration% &eseconds"
+    - ""
+    - "&7Great for hunting down bounties!"
+  max-uses: 5
+  search-radius: 100.0
+  tracking-duration: 30
+  action-bar-message: "&eTracking time remaining: &c%time%s"
+  messages:
+    no-target: "&cNo players found within tracking range!"
+    tracking-start: "&aTracker activated! Pointing to nearest player for &e%duration% &aseconds."
+    tracker-expired: "&cYour tracker has run out of uses and was removed!"
+    already-active: "&cTracker is already active!"
+    target-lost: "&cTarget lost! Searching for new target..."
+    tracking-expired: "&eTracker has expired."
+    jammer-blocked: "&c&lJAMMED! &7Enemy countermeasures are blocking your tracker!"
+
+uav:
+  item-name: "&6&lUAV Scanner"
+  item-lore:
+    - "&7Right-click to deploy UAV scanner"
+    - "&7within a &e%radius% &7block radius"
+    - "&c&lUses: &f%uses%&c/&f%max_uses%"
+    - ""
+    - "&eBounty targets will glow for"
+    - "&e%duration% &eseconds through walls"
+    - ""
+    - "&7Perfect for tracking marked targets!"
+  max-uses: 3
+  search-radius: 100.0
+  effect-duration: 30
+  messages:
+    no-target: "&cNo bounty targets found within range!"
+    uav-start: "&aUAV deployed! Bounty targets are now glowing."
+    uav-expired: "&cYour UAV has run out of uses and was removed!"
+    already-active: "&cUAV is already active!"
+    version-not-supported: "&cUAV requires Minecraft 1.9 or higher!"
+    target-found: "&aBounty target detected: &e%target%"
+    effect-expired: "&eUAV effect has expired."
+
+jammer:
+  item-name: "&c&lSignal Jammer"
+  item-lore:
+    - "&7Right-click to toggle jammer on/off"
+    - "&7Blocks tracker and UAV functionality"
+    - "&7when active and in inventory"
+    - ""
+    - "&eDuration: &a%duration% &eminutes of active use"
+    - "&cBreaks after full duration is consumed"
+    - ""
+    - "&7Perfect for staying off the radar!"
+  jamming-duration: 300
+  action-bar-message: "&cJammer Active: &e%time%s remaining"
+  messages:
+    jammer-activated: "&aJammer activated! You are now protected from tracking for &e%duration% &aseconds."
+    jammer-deactivated: "&cJammer deactivated."
+    jammer-expired: "&cYour jammer has expired and was removed!"
+    jammer-blocked: "&cYour action was blocked by an active jammer!"
+
+reverse-bounty:
+  item-name: "&d&lReverse Bounty"
+  item-lore:
+    - "&7Right-click to reverse your bounty"
+    - "&7onto the player who contributed"
+    - "&7the most money to your bounty"
+    - ""
+    - "&eTransfers all bounties from you"
+    - "&eto the highest contributor"
+    - ""
+    - "&cChance of failure: &e%min_failure%%-&e%max_failure%%"
+    - ""
+    - "&7Perfect for turning the tables!"
+  chance:
+    enabled: true
+    min-failure: 10.0
+    max-failure: 30.0
+  server-broadcast-message: "&6&l[BOUNTY] &e%player% &6has used a reverse bounty! The bounty is now on &e%target%&6!"
+  messages:
+    no-bounty: "&cYou have no bounty to reverse!"
+    success: "&aReverse bounty successful! The bounty has been transferred to &e%target%&a."
+    failure: "&cReverse bounty failed! The item was consumed but the reversal did not work."
+
+chronos-shard:
+  item-name: "&b&lChronos Shard"
+  item-lore:
+    - "&7Right-click to manipulate time and"
+    - "&7decrease your bounty duration"
+    - ""
+    - "&eDecrease Range: &a%min_decrease%%-&a%max_decrease%%"
+    - "&cFailure Chance: &e%min_failure%%-&e%max_failure%%"
+    - "&cFailure Effect: &e+%failure_increase%% time"
+    - ""
+    - "&7Harness the power of time itself!"
+  decrease-range:
+    min-percent: 5.0
+    max-percent: 15.0
+  failure-range:
+    min-chance: 15.0
+    max-chance: 25.0
+  failure:
+    adds-time: true
+    increase-percent: 10.0
+  server-broadcast-message: "&6&l[BOUNTY] &e%player% &6used a Chronos Shard and decreased their bounty time!"
+  messages:
+    no-bounty: "&cYou have no bounty to decrease!"
+    success: "&aChronos Shard activated! Your bounty time was decreased by &e%percentage%&a%!"
+    failure: "&cChronos Shard failed! The time manipulation was unsuccessful."
+    failure-with-time: "&cChronos Shard backfired! Your bounty time was increased by &e%percentage%&c%!"
+
+manual-boost:
+  item-name: "&d&lManual Boost"
+  item-lore:
+    - "&7Right-click to apply a manual boost"
+    - "&7to a player's bounty rewards"
+    - ""
+    - "&eMultiplier Range: &a%min_multiplier%x-&a%max_multiplier%x"
+    - "&eDuration Range: &a%min_time%-&a%max_time% minutes"
+    - "&cFailure Chance: &e%min_failure%%-&e%max_failure%%"
+    - ""
+    - "&7Perfect for rewarding hunters!"
+  multiplier-range:
+    min-multiplier: 1.5
+    max-multiplier: 3.0
+  time-range:
+    min-minutes: 10
+    max-minutes: 30
+  failure-range:
+    min-chance: 10.0
+    max-chance: 20.0
+  cancel-command: "cancel"
+  messages:
+    prompt: "&eType the name of the player you want to boost, or type 'cancel' to cancel:"
+    cancel: "&cManual boost cancelled. Item returned to your inventory."
+    invalid-player: "&cInvalid player name. Please try again or type 'cancel'."
+    player-offline: "&cThat player is currently offline. Please choose an online player."
+    player-not-found: "&cPlayer not found. Please try again or type 'cancel'."
+    already-boosted: "&cThat player already has an active manual boost!"
+    success: "&aManual boost applied! &e%target%&a now has a &e%multiplier%x&a boost for &e%time%&a minutes!"
+    failure: "&cManual boost failed! The boost application was unsuccessful."
+  server-broadcast-message: "&6&l[BOUNTY] &e%player% &6has applied a manual boost to &e%target%&6!"
+
+manual-frenzy:
+  item-identifier: "MANUAL_FRENZY_ITEM"  # Added to ensure unique identification
+  item-name: "&c&lManual Frenzy"
+  item-lore:
+    - "&7Right-click to activate a manual"
+    - "&7frenzy mode for all bounty rewards"
+    - ""
+    - "&eMultiplier Range: &c%min_multiplier%x-&c%max_multiplier%x"
+    - "&eDuration Range: &c%min_time%-&c%max_time% minutes"
+    - "&cFailure Chance: &e%min_failure%%-&e%max_failure%%"
+    - ""
+    - "&cAffects ALL bounty kills during duration!"
+    - "&7Unleash chaos upon the server!"
+  default-multiplier: 2.0
+  default-time-minutes: 5
+  default-failure-chance: 10.0
+  multiplier-range:
+    min-multiplier: 2.0
+    max-multiplier: 4.0
+  time-range:
+    min-minutes: 5
+    max-minutes: 15
+  failure-range:
+    min-chance: 15.0
+    max-chance: 25.0
+  messages:
+    success: "&aManual frenzy activated! All bounty rewards are now boosted by &e%multiplier%x&a for &e%time%&a minutes!"
+    failure: "&cManual frenzy failed! The frenzy activation was unsuccessful."
+    already-active: "&cFrenzy mode is already active!"
+  server-broadcast-message: "&6&l[BOUNTY] &e%player% &6has activated a manual frenzy! All bounty rewards are boosted by &e%multiplier%x&6!"

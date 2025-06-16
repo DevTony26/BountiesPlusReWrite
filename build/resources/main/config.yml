@@ -1,0 +1,70 @@
+debug-enabled: false
+restrict-same-ip-bounties: false
+bounty-place-tax-rate: 10.0
+bounty-cancel-tax-rate: 10.0
+tax-total-value: false
+allow-time: true
+enable-shop: true
+allow-offline-players: true
+require-skull-turn-in: true
+min-bounty-amount: 100
+max-bounty-amount: 1000000
+default-bounty-duration: 1440
+blacklisted-items:
+  - "DIAMOND_SWORD"
+  - "NETHERITE_AXE"
+blacklisted-nbt-items:
+  - nbt_key: "item_type"
+    nbt_value: "tracker"
+  - nbt_key: "item_type"
+    nbt_value: "uav"
+anonymous-bounties:
+  enabled: true
+  base-percentage: 15.0
+  minimum-cost: 50.0
+  maximum-cost: 5000.0
+tablist-modification:
+  enabled: true
+  format: "&c[Bounty] %bountiesplus_player_name%"
+bounty-skull:
+  name: "&c&l☠ &4Bounty Head of %target% &c&l☠"
+  lore:
+    - "&7This is the head of a wanted criminal!"
+    - "&7Player: &e%target%"
+    - "&7Total Bounty: &a$%total_bounty%"
+    - "&7Bounties: &f%bounty_count%"
+    - "&7Killed by: &c%killer%"
+    - "&7Time of Death: &6%death_time%"
+    - ""
+    - "&eRight-click to turn in for rewards!"
+    - "&cWarning: Head will expire in 24 hours"
+  enchantment-glow: true
+boosted-bounties:
+  enabled: true
+  boost-interval: 120
+  multiplier-chances:
+    "2.0": 50.0
+    "3.0": 30.0
+    "5.0": 20.0
+  boosted-title: "&aBounty Boosted!"
+  boosted-subtitle: "&e%target% &aby &e%multiplier%x"
+  enable-title-subtitle: true
+  bossbar:
+    enabled: true
+    display-before-boost: 3
+    message: "&6Next Boosted Bounty in %time%"
+bounty-particle:
+  enabled: true
+  blood-particle: "REDSTONE"
+  smoke-particle: "REDSTONE"
+  blood-particle-count-low: 15
+  blood-particle-count-high: 10
+  smoke-particle-count-low: 15
+  smoke-particle-count-high: 10
+  particle-interval: 40
+  display-radius: 30
+bounty-sound:
+  enabled: true
+  sound: "ENTITY_BLAZE_SHOOT"
+  volume: 1.0
+  pitch: 1.0

@@ -1,0 +1,86 @@
+
+# BountyCancelGUI Configuration File
+# Configure the bounty cancellation GUI appearance and messages
+
+# GUI Configuration
+gui:
+  title: "         &4&l⚔ &4&l&nCancel A Bounty&4&l &4&l⚔"
+  size: 54 # Must be a multiple of 9 (9, 18, 27, 36, 45, 54)
+  items-per-page: 36
+
+# Border Configuration
+border:
+  enabled: true
+  material: "GRAY_STAINED_GLASS_PANE" # Use version-appropriate glass pane
+  name: " "
+  lore: []
+  slots: # Border slots (0-8, 9, 17, 18, 26, 27, 35, 36, 44, 45-53)
+    - 0-8
+    - 9
+    - 17
+    - 18
+    - 26
+    - 27
+    - 35
+    - 36
+    - 44
+    - 45-53
+
+# Bounty Item Configuration (Player heads representing bounties)
+bounty-item:
+  name: "&cCancel Bounty on &e%target%"
+  lore:
+    - "&7Target: &f%target%"
+    - "&7Amount: &a%amount%"
+    - "&7Set Time: &e%set_time%"
+    - ""
+    - "&eClick to cancel this bounty"
+    - "&cRefund: &a%refund%"
+    - "&7Tax: &c%tax_amount%"
+  identifier: "BOUNTY_CANCEL_ITEM"
+
+# Navigation Buttons
+navigation:
+  previous-page:
+    enabled: true
+    slot: 48
+    material: "ARROW"
+    name: "&aPrevious Page"
+    lore:
+      - "&7Go to page &e%previous_page%"
+      - ""
+      - "&aClick to navigate"
+    identifier: "PREVIOUS_PAGE"
+
+  next-page:
+    enabled: true
+    slot: 50
+    material: "ARROW"
+    name: "&aNext Page"
+    lore:
+      - "&7Go to page &e%next_page%"
+      - ""
+      - "&aClick to navigate"
+    identifier: "NEXT_PAGE"
+
+  info-button:
+    enabled: true
+    slot: 49
+    material: "BOOK"
+    name: "&6Bounty Cancellation Info"
+    lore:
+      - "&7Total Bounties: &e%total_bounties%"
+      - "&7Page: &e%current_page%&7/&e%total_pages%"
+      - ""
+      - "&eTax Rate: &c%tax_rate%%"
+      - "&eTotal Refund: &a%total_refund%"
+    identifier: "INFO_BUTTON"
+
+# Messages Configuration
+messages:
+  no-bounties-to-cancel: "%prefix%&cYou have no bounties to cancel!"
+  bounty-cancelled: "%prefix%&aBounty cancelled! &eRefunded: &a%refund%"
+  bounty-cancel-tax: "%prefix%&eA &c%tax_rate%% &etax has been applied. &eTax amount: &c%tax_amount%"
+  cancel-error: "%prefix%&cError cancelling bounty! Please try again."
+  inventory-full: "%prefix%&cYour inventory is full! Please make space and try again."
+  confirm-cancel: "%prefix%&eAre you sure you want to cancel the bounty on &c%target%&e? Type &a/bounty confirm &eto proceed."

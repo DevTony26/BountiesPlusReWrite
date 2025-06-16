@@ -1,0 +1,64 @@
+plugins {
+    id 'java'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group = 'tony26.bountiesPlus'
+version = '1.0'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_1_8
+    targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+repositories {
+    maven { url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/' }
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+    mavenCentral()
+    maven { url = 'https://jitpack.io' }
+    maven {
+        name = 'placeholderapi'
+        url = 'https://repo.extendedclip.com/releases/'
+    }
+}
+
+dependencies {
+    // Spigot API for 1.8.8
+    compileOnly 'org.spigotmc:spigot-api:1.8.8-R0.1-SNAPSHOT'
+    // Item-NBT-API for cross-version NBT handling
+    implementation files('libs/item-nbt-api-plugin-2.15.0.jar')
+    // ProtocolLib for cross-version packet handling
+    implementation files('libs/ProtocolLib.jar')
+    // XSeries for cross-version material handling
+    implementation 'com.github.cryptomorin:XSeries:11.0.0'
+    // Vault API
+    compileOnly 'com.github.MilkBowl:VaultAPI:1.7'
+    // PlaceholderAPI
+    compileOnly 'me.clip:placeholderapi:2.11.6'
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-source', '8', '-target', '8']
+}
+
+shadowJar {
+    relocate 'com.cryptomorin.xseries', 'tony26.bountiesPlus.lib.xseries'
+    relocate 'de.tr7zw.nbtapi', 'tony26.bountiesPlus.lib.nbtapi'
+    relocate 'com.comphenix.protocol', 'tony26.bountiesPlus.lib.protocol'
+    minimize()
+    archiveFileName = 'BountiesPlus.jar'
+}
+
+task deleteBountiesPlusFolder(type: Delete) {
+    delete "C:/Users/Anthony/Desktop/DevTony Test Server/plugins/BountiesPlus"
+}
+
+task copyJarToPlugins(type: Copy) {
+    from shadowJar
+    into "C:/Users/Anthony/Desktop/DevTony Test Server/plugins"
+    dependsOn deleteBountiesPlusFolder
+    dependsOn shadowJar
+}
+
+build.finalizedBy copyJarToPlugins

@@ -1,0 +1,39 @@
+name: BountiesPlus
+version: 1.0
+main: tony26.bountiesPlus.BountiesPlus
+api-version: 1.21
+depend: [Vault, PlaceholderAPI]
+commands:
+  bounty:
+    description: Manage bounties on players
+    usage: /<command> [set|check|cancel|stats|status|give|reload|frenzy|top]
+    permission: bountiesplus.bounty
+  particle:
+    description: Toggle bounty particle visibility
+    usage: /<command>
+    permission: bountiesplus.particle
+permissions:
+  bountiesplus.bounty:
+    description: Allows setting bounties
+    default: true
+  bountiesplus.bounty.check:
+    description: Allows checking bounties
+    default: true
+  bountiesplus.bounty.cancel:
+    description: Allows cancelling bounties
+    default: true
+  bountiesplus.bounty.boost:
+    description: Allows manually boosting bounties
+    default: op
+  bountiesplus.bounty.give:
+    description: Allows giving bounty items to players
+    default: op
+  bountiesplus.bounty.stats:
+    description: Allows viewing bounty statistics
+    default: true
+  bountiesplus.bounty.reload:
+    description: Allows reloading the plugin
+    default: op
+  bountiesplus.particle:
+    description: Allows toggling particle visibility
+    default: true

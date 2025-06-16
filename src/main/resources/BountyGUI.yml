@@ -1,0 +1,246 @@
+# BountyGUI Configuration
+# Available Placeholders (via PlaceholderAPI):
+# %bountiesplus_target% - Target player name
+# %bountiesplus_sponsor% - Setter player name
+# %bountiesplus_amount% - Individual bounty amount
+# %bountiesplus_total_amount% - Total bounty amount on target
+# %bountiesplus_online_status% - Online/Offline status
+# %bountiesplus_multiplier% - Boost multiplier (if boosted)
+# %bountiesplus_set_time% - Time the bounty was set
+# %bountiesplus_expire_time% - Time the bounty expires
+# %bountiesplus_sponsor_list% - Comma-separated list of sponsors
+# %bountiesplus_boost% - Boost multiplier for the target
+# %bountiesplus_frenzy% - Frenzy mode multiplier
+
+# Main GUI Settings
+gui-title: "          &4&l⚔ &4&l&nBounties&4&l &4&l⚔"
+
+# Border Settings
+border:
+  enabled: true
+  material: BLACK_STAINED_GLASS_PANE
+  name: " "
+  lore: []
+  enchantment-glow: false
+
+# Bounty Item Display (Player heads in center area)
+bounty-item:
+  name: "&4&l%bountiesplus_target% &7&l&o(&4&l&o%bountiesplus_online_status%&7&l&o)"
+  lore:
+    - "&8&m-------------------"
+    - "&4 &4|l &7Sponsors: &4%bountiesplus_sponsor_list%"
+    - "&4 &4|l &7Starting Pool: &4%bountiesplus_amount%"
+    - "&4 &4|l &7Current Pool: &4%bountiesplus_total_amount%"
+    - "&4 &4|l &7Expires: &4%bountiesplus_expire_time%"
+    - "&4 &4|l &7Boost: &4%bountiesplus_multiplier%x"
+    - "&8&m-------------------"
+
+# Boosted Skull Display (used when a bounty is boosted)
+boosted-skull:
+  name: "&6&l%bountiesplus_target% &7&l(&6Boosted %bountiesplus_boost%x)"
+  lore:
+    - "&8&m-------------------"
+    - "&6 &6|l &7Sponsors: &6%bountiesplus_sponsor_list%"
+    - "&6 &6|l &7Starting Pool: &6%bountiesplus_amount%"
+    - "&6 &6|l &7Current Pool: &6%bountiesplus_total_amount%"
+    - "&6 &6|l &7Expires: &6%bountiesplus_expire_time%"
+    - "&6 &6|l &7Boost: &6%bountiesplus_boost%x"
+    - "&8&m-------------------"
+  enchantment-glow: true
+
+# Frenzy Skull Display (used during Frenzy Mode for all bounties)
+frenzy-skull:
+  name: "&c&l%bountiesplus_target% &7&l(&cFrenzy %bountiesplus_frenzy%x)"
+  lore:
+    - "&8&m-------------------"
+    - "&c &c|l &7Sponsors: &c%bountiesplus_sponsor_list%"
+    - "&c &c|l &7Starting Pool: &c%bountiesplus_amount%"
+    - "&c &c|l &7Current Pool: &c%bountiesplus_total_amount%"
+    - "&c &c|l &7Expires: &c%bountiesplus_expire_time%"
+    - "&c &c|l &7Frenzy Boost: &c%bountiesplus_frenzy%x"
+    - "&8&m-------------------"
+  enchantment-glow: true
+
+# Button Configurations with Slots
+filter-button:
+  slot: 47
+  material: FIREWORK_STAR
+  name: "&eFilter: %bountiesplus_filter_status%"
+  lore:
+    - "&7Left Click: Toggle Online/All filter"
+    - "&7Right Click: Toggle High-to-Low sorting"
+    - "&7Current: %bountiesplus_filter_details%"
+  enchantment-glow: false
+  firework-effect:
+    all-no-sort-color:
+      red: 255
+      green: 255
+      blue: 255
+      hex: "#FFFFFF"
+    all-sorted-color:
+      red: 100
+      green: 149
+      blue: 237
+      hex: "#6495ED"
+    online-no-sort-color:
+      red: 255
+      green: 0
+      blue: 0
+      hex: "#FF0000"
+    online-sorted-color:
+      red: 139
+      green: 0
+      blue: 0
+      hex: "#8B0000"
+    effect-type: STAR
+
+search-button:
+  material: SIGN
+  slot: 8
+  name: "&eSearch Bounties"
+  lore:
+    - "&7Click to search for a player"
+    - "&7by name."
+  glowing: false
+
+create-bounty-button:
+  slot: 50
+  material: ANVIL
+  name: "&aCreate A Bounty"
+  lore:
+    - "&7Click here to create a new bounty!"
+    - "&7Set bounties on other players"
+  enchantment-glow: false
+
+hunters-den-button:
+  slot: 48
+  material: EMERALD
+  name: "&4&lHunters Den"
+  lore:
+    - "&7Visit the shop for bounty perks!"
+  enchantment-glow: false
+
+bounty-hunter-button:
+  slot: 51
+  slot-no-shop: 49
+  material: PAPER
+  name: "&aBounty Hunter"
+  lore:
+    - "&7Click to turn in heads"
+    - "&7Claim your bounty rewards"
+  enchantment-glow: false
+
+boost-clock:
+  slot: 49
+  material: CLOCK
+  name: "&6&l⏰ Boost Clock"
+  lore:
+    - "&7═══════════════════════════"
+    - "&e&lCurrent Boosted Bounty:"
+    - "%current_boost_info%"
+    - ""
+    - "&a&lLast Boosted Bounty:"
+    - "%last_boost_info%"
+    - ""
+    - "&b&lNext Boost:"
+    - "%next_boost_info%"
+    - "&7═══════════════════════════"
+    - "&c&l🔥 FRENZY MODE 🔥"
+    - ""
+    - "&c&lCurrent Frenzy:"
+    - "%current_frenzy_info%"
+    - ""
+    - "&c&lLast Frenzy:"
+    - "%last_frenzy_info%"
+    - ""
+    - "&c&lNext Frenzy:"
+    - "%next_frenzy_info%"
+    - "&7═══════════════════════════"
+    - "&7Click to refresh information"
+  enchantment-glow: true
+  boost-info:
+    current-active:
+      - "&e→ &f%bountiesplus_target% &7(&a%bountiesplus_boost%x&7)"
+      - "&7  Expires: &c%bountiesplus_expire_time%"
+    current-none:
+      - "&7→ &8No active boost"
+    last-boost:
+      - "&a→ &f%bountiesplus_target% &7(&a%bountiesplus_boost%x&7)"
+      - "&7  Boosted: &6%bountiesplus_boost_time%"
+    last-none:
+      - "&7→ &8No previous boost"
+    next-countdown:
+      - "&b→ &fIn %time_remaining%"
+      - "&7  Interval: &e%boost_interval%"
+  frenzy-info:
+    current-active:
+      - "&c→ &f&lACTIVE &7(&c%bountiesplus_frenzy%x&7)"
+      - "&7  Ends in: &c%time_remaining%"
+    current-none:
+      - "&7→ &8No active frenzy"
+    last-frenzy:
+      - "&c→ &f%bountiesplus_frenzy%x &7multiplier"
+      - "&7  Ended: &6%frenzy_time%"
+    last-none:
+      - "&7→ &8No previous frenzy"
+    next-countdown:
+      - "&c→ &fIn %time_remaining%"
+      - "&7  Interval: &e%frenzy_interval%"
+    disabled:
+      - "&7→ &8Frenzy disabled"
+
+previous-page-button:
+  slot: 45
+  material: ARROW
+  name: "&aPrevious Page"
+  lore:
+    - "&7Go to previous page"
+    - "&7Page %bountiesplus_current_page% of %bountiesplus_total_pages%"
+  enchantment-glow: false
+
+next-page-button:
+  slot: 53
+  material: ARROW
+  name: "&aNext Page"
+  lore:
+    - "&7Go to next page"
+    - "&7Page %bountiesplus_current_page% of %bountiesplus_total_pages%"
+  enchantment-glow: false
+
+border-filler:
+  slot: 52
+
+# Layout Reference:
+# ┌─────────────────────────────────────┐
+# │ B B B B B B B B B │ <- Border (Top)
+# │ B . . . . . . . B │ <- Border sides, center area for bounties
+# │ B . . . . . . . B │ <- 3 rows of 7 bounty items each
+# │ B . . . . . . . B │ <- (21 total bounty slots)
+# │ B . . . . . . . B │ <- Border sides
+# │ P 46 F 48 I 50 B N │ <- Bottom buttons (dynamic)
+# └─────────────────────────────────────┘
+#
+# Legend:
+# B = Border item
+# . = Bounty item slots (10-16, 19-25, 28-34)
+# P = Previous (45) - only when has previous page
+# F = Filter (47), H = Hunters Den (48) - only when shop enabled
+# I = How It Works/Bounty Hunter (49/51), C = Create (50)
+# B = Border/Empty (52), N = Next (53) - only when has next page
+
+# Color Configuration Examples:
+# You can use either RGB values OR hex values for colors
+# RGB format:
+#   red: 255
+#   green: 0
+#   blue: 0
+#
+# Hex format:
+#   hex: "#FF0000"
+#
+# Available firework effect types:
+# - STAR (default)
+# - BALL
+# - BALL_LARGE
+# - BURST
+# - CREEPER
