@@ -54,6 +54,7 @@ public class BountyManager {
 
     /**
      * Applies a manual boost to a player's bounty
+     * // note: Updates multiplier and expire time in storage
      */
     public void applyManualBoost(UUID targetUUID, double multiplier, String boostType, int timeMinutes) {
         long expireTime = System.currentTimeMillis() + (timeMinutes * 60 * 1000L);
@@ -74,12 +75,15 @@ public class BountyManager {
             }
             sponsor.setExpireTime(expireTime);
         }
-        FileConfiguration config = plugin.getBountiesConfig();
-        for (Bounty.Sponsor sponsor : bounty.getSponsors()) {
-            config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".multiplier", multiplier);
-            config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".expire_time", expireTime);
+        if (plugin.getMySQL().isConnected()) {
+            plugin.getMySQL().applyManualBoostAsync(targetUUID, multiplier, expireTime).exceptionally(e -> {
+                plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to apply manual boost asynchronously: " + e.getMessage());
+                saveManualBoostToYAML(targetUUID, multiplier, expireTime);
+                return null;
+            });
+        } else {
+            saveManualBoostToYAML(targetUUID, multiplier, expireTime);
         }
-        plugin.saveEverything();
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             removeManualBoost(targetUUID, boostType);
         }, timeMinutes * 60 * 20L);
@@ -87,6 +91,7 @@ public class BountyManager {
 
     /**
      * Removes a manual boost from a player's bounty
+     * // note: Resets multiplier and expire time in storage
      */
     public void removeManualBoost(UUID targetUUID, String boostType) {
         Bounty bounty = bounties.get(targetUUID);
@@ -107,12 +112,15 @@ public class BountyManager {
                 }
                 sponsor.setExpireTime(-1L);
             }
-            FileConfiguration config = plugin.getBountiesConfig();
-            for (Bounty.Sponsor sponsor : bounty.getSponsors()) {
-                config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".multiplier", 1.0);
-                config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".expire_time", -1);
+            if (plugin.getMySQL().isConnected()) {
+                plugin.getMySQL().removeManualBoostAsync(targetUUID).exceptionally(e -> {
+                    plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to remove manual boost asynchronously: " + e.getMessage());
+                    removeManualBoostFromYAML(targetUUID);
+                    return null;
+                });
+            } else {
+                removeManualBoostFromYAML(targetUUID);
             }
-            plugin.saveEverything();
         }
     }
 
@@ -136,41 +144,60 @@ public class BountyManager {
     }
 
     /**
-     * Removes a specific bounty contribution // note: Removes a sponsor's bounty and updates tablist
+     * Removes a specific bounty contribution
+     * // note: Removes a sponsor's bounty and updates tablist
      */
     public void removeBounty(UUID setter, UUID target) {
         Bounty bounty = bounties.get(target);
         if (bounty != null) {
             if (bounty.removeSponsor(setter)) {
-                FileConfiguration config = plugin.getBountiesConfig();
-                config.set("bounties." + target + "." + setter, null);
-                config.set("anonymous-bounties." + target + "." + setter, null);
+                if (plugin.getMySQL().isConnected()) {
+                    plugin.getMySQL().removeBountyAsync(setter, target).exceptionally(e -> {
+                        plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to remove bounty asynchronously: " + e.getMessage());
+                        removeFromYAML(setter, target);
+                        return null;
+                    });
+                } else {
+                    removeFromYAML(setter, target);
+                }
                 if (bounty.getSponsors().isEmpty()) {
                     bounties.remove(target);
-                    config.set("bounties." + target, null);
-                    config.set("anonymous-bounties." + target, null);
                 }
-                plugin.saveEverything();
-                FileConfiguration statsConfig = plugin.getStatsConfig();
-                int bountiesSurvived = statsConfig.getInt("players." + target + ".survived", 0) + 1;
-                int bountiesClaimed = statsConfig.getInt("players." + target + ".claimed", 0);
-                double moneyEarned = statsConfig.getDouble("players." + target + ".money_earned", 0.0);
-                int reputation = bountiesClaimed * 10 + bountiesSurvived * 5;
-                statsConfig.set("players." + target + ".survived", bountiesSurvived);
-                statsConfig.set("players." + target + ".reputation", reputation);
-                plugin.saveEverything();
                 Player targetPlayer = Bukkit.getPlayer(target);
                 if (targetPlayer != null && !hasBounty(target)) {
-                    plugin.getTablistManager().removeTablistName(targetPlayer); // Remove tablist name if no bounties remain
+                    plugin.getTablistManager().removeTablistName(targetPlayer);
                 }
             }
         }
     }
 
     /**
-     * Loads bounties from configuration
+     * Loads bounties from configuration or MySQL
+     * // note: Populates the bounties map from storage
      */
     private void loadBounties() {
+        bounties.clear();
+        if (plugin.getMySQL().isConnected()) {
+            plugin.getMySQL().loadBountiesAsync().thenAccept(loadedBounties -> {
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    bounties.putAll(loadedBounties);
+                    plugin.getLogger().info("Loaded " + bounties.size() + " bounties from MySQL.");
+                });
+            }).exceptionally(e -> {
+                plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to load bounties asynchronously: " + e.getMessage());
+                loadBountiesFromYAML();
+                return null;
+            });
+        } else {
+            loadBountiesFromYAML();
+        }
+    }
+
+    /**
+     * Loads bounties from YAML configuration
+     * // note: Fallback method to load bounties from BountyStorage.yml
+     */
+    private void loadBountiesFromYAML() {
         FileConfiguration config = plugin.getBountiesConfig();
         if (!config.isConfigurationSection("bounties")) {
             return;
@@ -192,42 +219,71 @@ public class BountyManager {
                     plugin.getLogger().warning("Invalid setter UUID in BountyStorage.yml: " + setterUUIDStr);
                     continue;
                 }
-                int amount = config.getInt("bounties." + targetUUIDStr + "." + setterUUIDStr + ".amount", 0);
+                double amount = config.getDouble("bounties." + targetUUIDStr + "." + setterUUIDStr + ".amount", 0.0);
+                int xp = config.getInt("bounties." + targetUUIDStr + "." + setterUUIDStr + ".xp", 0);
+                int durationMinutes = config.getInt("bounties." + targetUUIDStr + "." + setterUUIDStr + ".duration", 0);
                 boolean isAnonymous = config.getBoolean("anonymous-bounties." + targetUUIDStr + "." + setterUUIDStr, false);
                 long setTime = config.getLong("bounties." + targetUUIDStr + "." + setterUUIDStr + ".set_time", System.currentTimeMillis());
                 long expireTime = config.getLong("bounties." + targetUUIDStr + "." + setterUUIDStr + ".expire_time", -1);
                 double multiplier = config.getDouble("bounties." + targetUUIDStr + "." + setterUUIDStr + ".multiplier", 1.0);
-                if (amount > 0) {
-                    bounty.addContribution(setterUUID, amount, 0, 0, new ArrayList<>(), isAnonymous, true);
+                List<ItemStack> items = new ArrayList<>();
+                List<String> itemStrings = config.getStringList("bounties." + targetUUIDStr + "." + setterUUIDStr + ".items");
+                for (String itemStr : itemStrings) {
+                    String[] parts = itemStr.split(":");
+                    if (parts.length == 2) {
+                        try {
+                            Material material = Material.valueOf(parts[0]);
+                            int itemAmount = Integer.parseInt(parts[1]);
+                            items.add(new ItemStack(material, itemAmount));
+                        } catch (IllegalArgumentException e) {
+                            plugin.getLogger().warning("Invalid item in BountyStorage.yml: " + itemStr);
+                        }
+                    }
+                }
+                if (amount > 0 || xp > 0 || durationMinutes > 0 || !items.isEmpty()) {
+                    bounty.addContribution(setterUUID, amount, xp, durationMinutes, items, isAnonymous, true);
+                    Bounty.Sponsor sponsor = bounty.getSponsors().stream()
+                            .filter(s -> s.getPlayerUUID().equals(setterUUID))
+                            .findFirst()
+                            .orElse(null);
+                    if (sponsor != null) {
+                        sponsor.setSetTime(setTime);
+                        sponsor.setExpireTime(expireTime);
+                        sponsor.setMultiplier(multiplier);
+                    }
                 }
             }
             if (!bounty.getSponsors().isEmpty()) {
                 bounties.put(targetUUID, bounty);
             }
         }
+        plugin.getLogger().info("Loaded " + bounties.size() + " bounties from YAML.");
     }
 
     /**
-     * Sets a bounty with specified parameters // note: Creates or updates a bounty and updates tablist
+     * Sets a bounty with specified parameters
+     * // note: Creates or updates a bounty in storage and updates tablist
      */
     public void setBounty(UUID setter, UUID target, int amount, long expireTime) {
         DebugManager debugManager = plugin.getDebugManager();
         debugManager.logDebug("[BountyManager] Setting bounty: setter=" + setter + ", target=" + target + ", amount=" + amount + ", expireTime=" + expireTime);
         Bounty bounty = bounties.computeIfAbsent(target, k -> new Bounty(plugin, target));
         bounty.addContribution(setter, amount, 0, 0, new ArrayList<>(), false, !bounties.containsKey(target));
-        FileConfiguration config = plugin.getBountiesConfig();
-        long setTime = System.currentTimeMillis();
-        config.set("bounties." + target + "." + setter + ".amount", amount);
-        config.set("bounties." + target + "." + setter + ".set_time", setTime);
-        config.set("bounties." + target + "." + setter + ".expire_time", expireTime);
-        config.set("bounties." + target + "." + setter + ".multiplier", 1.0);
-        plugin.saveEverything();
+        if (plugin.getMySQL().isConnected()) {
+            plugin.getMySQL().setBountyAsync(setter, target, amount, expireTime).exceptionally(e -> {
+                plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to set bounty asynchronously: " + e.getMessage());
+                saveToYAML(setter, target, amount, 0, 0, false, expireTime, new ArrayList<>());
+                return null;
+            });
+        } else {
+            saveToYAML(setter, target, amount, 0, 0, false, expireTime, new ArrayList<>());
+        }
         Player targetPlayer = Bukkit.getPlayer(target);
         if (targetPlayer != null) {
             debugManager.logDebug("[BountyManager] Target player " + targetPlayer.getName() + " is online, scheduling tablist update");
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 plugin.getTablistManager().applyTablistName(targetPlayer);
-            }, 10L); // 0.5-second delay
+            }, 10L);
         } else {
             debugManager.logDebug("[BountyManager] Target player " + target + " is offline, tablist update skipped");
         }
@@ -241,7 +297,8 @@ public class BountyManager {
     }
 
     /**
-     * Adds an anonymous bounty // note: Creates a bounty with money, items, XP, and duration, marking it as anonymous and updates tablist
+     * Adds an anonymous bounty
+     * // note: Creates a bounty with money, items, XP, and duration, marking it as anonymous and updates tablist
      */
     public void addAnonymousBounty(UUID target, UUID setter, double amount, int xp, int durationMinutes, List<ItemStack> items) {
         DebugManager debugManager = plugin.getDebugManager();
@@ -250,31 +307,22 @@ public class BountyManager {
                 ", xp: " + xp + ", duration: " + durationMinutes + " minutes");
         Bounty bounty = bounties.computeIfAbsent(target, k -> new Bounty(plugin, target));
         bounty.addContribution(setter, amount, xp, durationMinutes, items, true, !bounties.containsKey(target));
-        long expireTime = durationMinutes > 0 ?
-                System.currentTimeMillis() + (durationMinutes * 60 * 1000L) :
-                System.currentTimeMillis() + (plugin.getConfig().getInt("default-bounty-duration", 1440) * 60 * 1000L);
-        FileConfiguration config = plugin.getBountiesConfig();
-        config.set("bounties." + target + "." + setter + ".amount", amount);
-        config.set("bounties." + target + "." + setter + ".xp", xp);
-        config.set("bounties." + target + "." + setter + ".duration", durationMinutes);
-        config.set("bounties." + target + "." + setter + ".set_time", System.currentTimeMillis());
-        config.set("bounties." + target + "." + setter + ".expire_time", expireTime);
-        config.set("bounties." + target + "." + setter + ".multiplier", 1.0);
-        config.set("anonymous-bounties." + target + "." + setter, true);
-        List<String> itemStrings = items.stream()
-                .filter(item -> item != null && !item.getType().equals(Material.AIR))
-                .map(item -> item.getType().name() + ":" + item.getAmount())
-                .collect(Collectors.toList());
-        config.set("bounties." + target + "." + setter + ".items", itemStrings);
-        debugManager.logDebug("[BountyManager] Saved " + itemStrings.size() + " items to config: " + itemStrings);
-        plugin.saveEverything();
-        debugManager.logDebug("[BountyManager] Saved anonymous bounty to config for target: " + target);
+        if (plugin.getMySQL().isConnected()) {
+            plugin.getMySQL().addAnonymousBountyAsync(target, setter, amount, xp, durationMinutes, items).exceptionally(e -> {
+                plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to add anonymous bounty asynchronously: " + e.getMessage());
+                saveToYAML(setter, target, amount, xp, durationMinutes, true, -1, items);
+                return null;
+            });
+        } else {
+            saveToYAML(setter, target, amount, xp, durationMinutes, true, -1, items);
+        }
+        debugManager.logDebug("[BountyManager] Saved anonymous bounty for target: " + target);
         Player targetPlayer = Bukkit.getPlayer(target);
         if (targetPlayer != null) {
             debugManager.logDebug("[BountyManager] Target player " + targetPlayer.getName() + " is online, scheduling tablist update");
             Bukkit.getScheduler().runTaskLater(plugin, () -> {
                 plugin.getTablistManager().applyTablistName(targetPlayer);
-            }, 10L); // 0.5-second delay
+            }, 10L);
         } else {
             debugManager.logDebug("[BountyManager] Target player " + target + " is offline, tablist update skipped");
         }
@@ -288,17 +336,23 @@ public class BountyManager {
     }
 
     /**
-     * Clears all bounties on a target // note: Removes all bounties and updates tablist
+     * Clears all bounties on a target
+     * // note: Removes all bounties and updates tablist
      */
     public void clearBounties(UUID target) {
         bounties.remove(target);
-        FileConfiguration config = plugin.getBountiesConfig();
-        config.set("bounties." + target, null);
-        config.set("anonymous-bounties." + target, null);
-        plugin.saveEverything();
+        if (plugin.getMySQL().isConnected()) {
+            plugin.getMySQL().clearBountiesAsync(target).exceptionally(e -> {
+                plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to clear bounties asynchronously: " + e.getMessage());
+                clearFromYAML(target);
+                return null;
+            });
+        } else {
+            clearFromYAML(target);
+        }
         Player targetPlayer = Bukkit.getPlayer(target);
         if (targetPlayer != null) {
-            plugin.getTablistManager().removeTablistName(targetPlayer); // Remove tablist name
+            plugin.getTablistManager().removeTablistName(targetPlayer);
         }
     }
 
@@ -457,7 +511,92 @@ public class BountyManager {
             plugin.getLogger().info("Removed " + targetsToRemove.size() + " expired bounty targets");
         }
     }
+    /**
+     * Saves a bounty to YAML
+     * // note: Updates BountyStorage.yml with bounty data
+     */
+    private void saveToYAML(UUID setter, UUID target, double amount, int xp, int durationMinutes, boolean isAnonymous, long expireTime, List<ItemStack> items) {
+        FileConfiguration config = plugin.getBountiesConfig();
+        long setTime = System.currentTimeMillis();
+        String path = "bounties." + target + "." + setter;
+        config.set(path + ".amount", amount);
+        config.set(path + ".xp", xp);
+        config.set(path + ".duration", durationMinutes);
+        config.set(path + ".set_time", setTime);
+        config.set(path + ".expire_time", expireTime);
+        config.set(path + ".multiplier", 1.0);
+        config.set("anonymous-bounties." + target + "." + setter, isAnonymous);
+        List<String> itemStrings = items.stream()
+                .filter(item -> item != null && !item.getType().equals(Material.AIR))
+                .map(item -> item.getType().name() + ":" + item.getAmount())
+                .collect(Collectors.toList());
+        config.set(path + ".items", itemStrings);
+        plugin.saveEverything();
+    }
 
+    /**
+     * Removes a bounty from YAML
+     * // note: Deletes a bounty record from BountyStorage.yml
+     */
+    private void removeFromYAML(UUID setter, UUID target) {
+        FileConfiguration config = plugin.getBountiesConfig();
+        config.set("bounties." + target + "." + setter, null);
+        config.set("anonymous-bounties." + target + "." + setter, null);
+        if (config.getConfigurationSection("bounties." + target) == null || config.getConfigurationSection("bounties." + target).getKeys(false).isEmpty()) {
+            config.set("bounties." + target, null);
+            config.set("anonymous-bounties." + target, null);
+        }
+        plugin.saveEverything();
+    }
+
+    /**
+     * Clears all bounties for a target from YAML
+     * // note: Deletes all bounty records for a target from BountyStorage.yml
+     */
+    private void clearFromYAML(UUID target) {
+        FileConfiguration config = plugin.getBountiesConfig();
+        config.set("bounties." + target, null);
+        config.set("anonymous-bounties." + target, null);
+        plugin.saveEverything();
+    }
+
+    /**
+     * Saves a manual boost to YAML
+     * // note: Updates BountyStorage.yml with manual boost data
+     */
+    private void saveManualBoostToYAML(UUID targetUUID, double multiplier, long expireTime) {
+        FileConfiguration config = plugin.getBountiesConfig();
+        for (Bounty.Sponsor sponsor : bounties.getOrDefault(targetUUID, new Bounty(plugin, targetUUID)).getSponsors()) {
+            config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".multiplier", multiplier);
+            config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".expire_time", expireTime);
+        }
+        plugin.saveEverything();
+    }
+
+    /**
+     * Removes a manual boost from YAML
+     * // note: Resets manual boost data in BountyStorage.yml
+     */
+    private void removeManualBoostFromYAML(UUID targetUUID) {
+        FileConfiguration config = plugin.getBountiesConfig();
+        for (Bounty.Sponsor sponsor : bounties.getOrDefault(targetUUID, new Bounty(plugin, targetUUID)).getSponsors()) {
+            config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".multiplier", 1.0);
+            config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".expire_time", -1);
+        }
+        plugin.saveEverything();
+    }
+
+    /**
+     * Reloads bounties from storage
+     * // note: Refreshes the bounties map
+     */
+    public void reload() {
+        loadBounties();
+    }
+    /**
+     * Cleans up the bounty manager
+     * // note: Saves bounties and clears the bounties map
+     */
     public void cleanup() {
         saveBounties();
         bounties.clear();

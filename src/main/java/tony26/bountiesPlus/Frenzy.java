@@ -151,6 +151,14 @@ public class Frenzy {
         return true;
     }
 
+    /**
+     * Reloads frenzy mode configuration
+     * // note: Updates settings from config.yml
+     */
+    public void reload() {
+        loadConfig();
+    }
+
     private void activateFrenzy() {
         Map<UUID, Map<UUID, Integer>> allBounties = plugin.getBountyManager().listAllBounties();
         if (allBounties.isEmpty()) {

@@ -61,6 +61,7 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     private String bountyGUITitle;
     private int taskID;
     private Map<String, ConfigWrapper> configWrappers = new HashMap<>();
+    private MySQL mySQL;
 
     private class ConfigWrapper {
         private final String name;
@@ -131,6 +132,7 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     public String getSmokeParticleName() { return smokeParticleName; }
     public int getParticleInterval() { return particleInterval; }
     public int getDisplayRadius() { return displayRadius; }
+    public MySQL getMySQL() { return mySQL; }
 
     public FileConfiguration getMessagesConfig() {
         return configWrappers.get("messages").getConfig();
@@ -204,6 +206,19 @@ public class BountiesPlus extends JavaPlugin implements Listener {
             configWrappers.put(name, new ConfigWrapper(name));
         }
 
+        // Initialize MySQL
+        mySQL = new MySQL(this);
+        if (mySQL.isConnected() && !getConfig().getBoolean("mysql.data-migrated", false)) {
+            mySQL.migrateBountiesAsync().thenRun(() -> {
+                getConfig().set("mysql.data-migrated", true);
+                saveConfig();
+                getLogger().info("Bounty data migration completed.");
+            }).exceptionally(e -> {
+                getLogger().warning("[DEBUG] MySQL Error: Migration failed: " + e.getMessage());
+                return null;
+            });
+        }
+
         tracker = new Tracker(this);
         jammer = new Jammer(this);
         uav = new UAV(this);
@@ -267,6 +282,30 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     }
 
     /**
+     * Reloads all plugin configurations and systems
+     * // note: Updates configs, MySQL connection, and dependent settings
+     */
+    public void reloadEverything() {
+        reloadConfig();
+        for (ConfigWrapper wrapper : configWrappers.values()) {
+            wrapper.reload();
+        }
+        loadBountyParticleConfig();
+        loadBountySoundConfig();
+        loadBountyGUITitle();
+        if (boostedBounty != null) {
+            boostedBounty.reload();
+        }
+        if (frenzy != null) {
+            frenzy.reload();
+        }
+        if (mySQL != null) {
+            mySQL.reconnect();
+        }
+        bountyManager.reload();
+    }
+
+    /**
      * Reloads all plugin configurations
      * // note: Updates all config files and dependent settings
      */
@@ -282,7 +321,7 @@ public class BountiesPlus extends JavaPlugin implements Listener {
 
     /**
      * Saves all plugin data
-     * // note: Persists all data files to disk
+     * // note: Persists all data files and MySQL records
      */
     public void saveEverything() {
         configWrappers.get("bounties").save();
@@ -366,6 +405,9 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         }
         if (debugManager != null) {
             debugManager.stopDebugLoggingTask();
+        }
+        if (mySQL != null) {
+            mySQL.closeConnection();
         }
         stopParticleTask();
         Placeholders.stopDebugLoggingTask();

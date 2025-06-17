@@ -1,3 +1,13 @@
+# MySQL configuration for bounty storage
+mysql:
+  use-mysql: false
+  host: localhost
+  port: 3306
+  database: bountiesplus
+  username: root
+  password: ""
+  data-migrated: false
+# Existing settings remain unchanged
 debug-enabled: false
 restrict-same-ip-bounties: false
 bounty-place-tax-rate: 10.0

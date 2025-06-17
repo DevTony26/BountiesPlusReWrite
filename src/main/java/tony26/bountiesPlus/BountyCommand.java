@@ -799,6 +799,10 @@ public class BountyCommand implements CommandExecutor {
         return statsHandler.handleStatsCommand(player);
     }
 
+    /**
+     * Handles the /bounty reload command
+     * // note: Reloads all plugin configurations and systems
+     */
     private boolean handleReloadCommand(Player player, String[] args, FileConfiguration messagesConfig, boolean allowTime) {
         if (!player.hasPermission("bountiesplus.bounty.reload")) {
             String noPermission = messagesConfig.getString("no-permission", "%prefix%&cYou do not have permission to use this command.");
@@ -817,17 +821,8 @@ public class BountyCommand implements CommandExecutor {
         try {
             // Save bounties before reloading
             plugin.saveEverything();
-            // Reload all configurations
-            plugin.reloadConfig();
-            plugin.reloadAllConfigs();
-            plugin.reloadAllConfigs();
-            plugin.reloadAllConfigs();
-            plugin.reloadAllConfigs();
-            // Reload particle and sound configs
-            plugin.loadBountyParticleConfig();
-            plugin.loadBountySoundConfig();
-            plugin.loadBountyGUITitle();
-
+            // Reload all configurations and systems
+            plugin.reloadEverything();
             String successMessage = messagesConfig.getString("bounty-reload-success", "%prefix%&aConfiguration files reloaded successfully.");
             successMessage = successMessage.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
             player.sendMessage(ChatColor.translateAlternateColorCodes('&', successMessage));

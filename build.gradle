@@ -35,6 +35,8 @@ dependencies {
     compileOnly 'com.github.MilkBowl:VaultAPI:1.7'
     // PlaceholderAPI
     compileOnly 'me.clip:placeholderapi:2.11.6'
+    // MySQL Connector/J
+    implementation 'mysql:mysql-connector-java:8.0.33'
 }
 
 tasks.withType(JavaCompile) {
@@ -46,6 +48,7 @@ shadowJar {
     relocate 'com.cryptomorin.xseries', 'tony26.bountiesPlus.lib.xseries'
     relocate 'de.tr7zw.nbtapi', 'tony26.bountiesPlus.lib.nbtapi'
     relocate 'com.comphenix.protocol', 'tony26.bountiesPlus.lib.protocol'
+    relocate 'com.mysql', 'tony26.bountiesPlus.lib.mysql' // Relocate MySQL to avoid conflicts
     minimize()
     archiveFileName = 'BountiesPlus.jar'
 }

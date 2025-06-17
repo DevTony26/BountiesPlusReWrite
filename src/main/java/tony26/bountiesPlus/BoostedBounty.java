@@ -324,5 +324,11 @@ public class BoostedBounty {
         return TimeFormatter.formatTimestampToAgo(lastBoostTime);
     }
 
-
+    /**
+     * Reloads boosted bounty configuration
+     * // note: Updates settings from config.yml
+     */
+    public void reload() {
+        loadConfig();
+    }
 }
