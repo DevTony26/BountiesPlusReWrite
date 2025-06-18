@@ -80,13 +80,15 @@ public class BountyGUI implements Listener {
         plugin.getLogger().info("BountyGUI listener registered.");
     }
 
+    /**
+     * Opens the Bounty GUI for a player // note: Initializes GUI with border, buttons, and bounty items
+     */
     public static void openBountyGUI(Player player, boolean filterHighToLow, int page) {
         BountiesPlus plugin = BountiesPlus.getInstance();
         FileConfiguration config = plugin.getBountyGUIConfig();
         plugin.reloadAllConfigs();
 
         GUI_TITLE = ChatColor.translateAlternateColorCodes('&', config.getString("gui-title", "&dBounty Hunter"));
-        plugin.getLogger().info("Opening BountyGUI for player: " + player.getName() + " with title: " + GUI_TITLE);
         Inventory bountyGui = Bukkit.createInventory(null, 54, GUI_TITLE);
         currentPage = page;
         BountyGUI.filterHighToLow = filterHighToLow;
@@ -99,23 +101,17 @@ public class BountyGUI implements Listener {
         // Ensure current page is within bounds
         currentPage = Math.max(0, Math.min(currentPage, totalPages - 1));
 
-        // Create border glass pane
+        // Create and apply border
         ItemStack borderPane = createBorderItem(config);
-
-        // Apply border if enabled
-        boolean enableBorder = config.getBoolean("border.enabled", true);
-        if (enableBorder) {
-            fillBorder(bountyGui, borderPane, config);
-        }
+        fillBorder(bountyGui, borderPane, config);
 
         // Check if shop is enabled in config.yml
         boolean enableShop = plugin.getConfig().getBoolean("enable-shop", true);
-        plugin.getLogger().info("Enable-shop setting: " + enableShop);
 
-        // Create and place buttons using slot configuration
+        // Place buttons (after borders to overwrite any slot conflicts)
         placeConfiguredButtons(bountyGui, config, enableShop, filterHighToLow, showOnlyOnline, currentPage, totalPages, plugin);
 
-        // BOUNTY ITEMS (center area excluding border and bottom buttons)
+        // Place bounty items
         placeBountyItems(bountyGui, plugin, config);
 
         player.openInventory(bountyGui);
@@ -477,27 +473,23 @@ public class BountyGUI implements Listener {
         return Color.WHITE;
     }
 
+    /**
+     * Creates a border item for the GUI based on configuration // note: Generates border item with specified material and glow
+     */
     private static ItemStack createBorderItem(FileConfiguration config) {
-        String materialName = config.getString("border.material", "BLACK_STAINED_GLASS_PANE");
+        String materialName = config.getString("border.material", "WHITE_STAINED_GLASS_PANE");
         ItemStack borderPane = VersionUtils.getXMaterialItemStack(materialName);
-        if (borderPane.getType() == Material.STONE && !materialName.equalsIgnoreCase("BLACK_STAINED_GLASS_PANE")) {
-            BountiesPlus.getInstance().getLogger().warning("Invalid border material '" + materialName + "' in BountyGUI.yml, using BLACK_STAINED_GLASS_PANE");
+        if (borderPane.getType() == Material.STONE && !materialName.equalsIgnoreCase("WHITE_STAINED_GLASS_PANE")) {
+            BountiesPlus.getInstance().getLogger().warning("Invalid border material '" + materialName + "' in BountyGUI.yml, using WHITE_STAINED_GLASS_PANE");
             FileConfiguration messagesConfig = BountiesPlus.getInstance().getMessagesConfig();
             String errorMessage = messagesConfig.getString("invalid-material", "&cInvalid material %material% for %button%!");
             errorMessage = errorMessage.replace("%material%", materialName).replace("%button%", "border");
             BountiesPlus.getInstance().getLogger().info(ChatColor.stripColor(errorMessage));
-            borderPane = VersionUtils.getXMaterialItemStack("BLACK_STAINED_GLASS_PANE");
+            borderPane = VersionUtils.getXMaterialItemStack("WHITE_STAINED_GLASS_PANE");
         }
         ItemMeta borderMeta = borderPane.getItemMeta();
         if (borderMeta != null) {
-            borderMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', config.getString("border.name", " ")));
-            List<String> borderLore = config.getStringList("border.lore");
-            if (!borderLore.isEmpty()) {
-                List<String> coloredBorderLore = borderLore.stream()
-                        .map(line -> ChatColor.translateAlternateColorCodes('&', line))
-                        .collect(Collectors.toList());
-                borderMeta.setLore(coloredBorderLore);
-            }
+            borderMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', " "));
             if (config.getBoolean("border.enchantment-glow", false)) {
                 borderMeta.addEnchant(Enchantment.DURABILITY, 1, true);
                 borderMeta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
@@ -507,20 +499,21 @@ public class BountyGUI implements Listener {
         return borderPane;
     }
 
+    /**
+     * Fills the GUI border with configured items // note: Places border items in specified slots from config
+     */
     private static void fillBorder(Inventory inventory, ItemStack borderItem, FileConfiguration config) {
-        for (int i = 0; i < 9; i++) {
-            inventory.setItem(i, borderItem.clone());
+        List<Integer> borderSlots = config.getIntegerList("border.slots");
+        if (borderSlots.isEmpty()) {
+            BountiesPlus.getInstance().getLogger().warning("No border slots defined in BountyGUI.yml, using default slots");
+            borderSlots = Arrays.asList(0,1,2,3,4,5,6,7,8,9,17,18,26,27,35,36,44,45,46,47,48,49,50,51,52,53);
         }
-        for (int i = 45; i < 54; i++) {
-            inventory.setItem(i, borderItem.clone());
-        }
-        for (int row = 1; row <= 4; row++) {
-            inventory.setItem(row * 9, borderItem.clone());
-            inventory.setItem(row * 9 + 8, borderItem.clone());
-        }
-        int borderFillerSlot = config.getInt("border-filler.slot", -1);
-        if (borderFillerSlot >= 0 && borderFillerSlot < 54) {
-            inventory.setItem(borderFillerSlot, borderItem.clone());
+        for (int slot : borderSlots) {
+            if (slot >= 0 && slot < 54) {
+                inventory.setItem(slot, borderItem.clone());
+            } else {
+                BountiesPlus.getInstance().getLogger().warning("Invalid border slot " + slot + " in BountyGUI.yml (must be 0-53)");
+            }
         }
     }
 

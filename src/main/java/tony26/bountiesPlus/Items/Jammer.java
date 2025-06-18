@@ -202,6 +202,7 @@ public class Jammer implements Listener {
 
     /**
      * Starts the action bar countdown
+     * // note: Displays a countdown for the jammer's remaining time
      */
     private void startActionBar(Player player) {
         UUID playerUUID = player.getUniqueId();
@@ -219,12 +220,6 @@ public class Jammer implements Listener {
                 }
 
                 if (!isJammerActive(currentPlayer)) {
-                    cancel();
-                    return;
-                }
-
-                // Check if player still has jammer in inventory
-                if (!hasJammerInInventory(currentPlayer)) {
                     cancel();
                     return;
                 }
@@ -263,6 +258,69 @@ public class Jammer implements Listener {
     }
 
     /**
+     * Handles inventory changes to deactivate jammer if item is removed
+     * // note: Toggles off jammer when the player no longer has a Jammer item in their inventory
+     */
+    @EventHandler
+    public void onInventoryChange(org.bukkit.event.inventory.InventoryClickEvent event) {
+        Player player = (Player) event.getWhoClicked();
+        UUID playerUUID = player.getUniqueId();
+
+        if (!isJammerActive(player)) {
+            return;
+        }
+
+        // Schedule check after inventory change to ensure inventory is updated
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            if (!hasJammerInInventory(player)) {
+                deactivateJammer(player);
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', jammerDeactivatedMessage));
+            }
+        });
+    }
+
+    /**
+     * Handles player dropping items to deactivate jammer
+     * // note: Toggles off jammer when a Jammer item is dropped
+     */
+    @EventHandler
+    public void onPlayerDropItem(org.bukkit.event.player.PlayerDropItemEvent event) {
+        Player player = event.getPlayer();
+        ItemStack item = event.getItemDrop().getItemStack();
+
+        if (!isJammerItem(item) || !isJammerActive(player)) {
+            return;
+        }
+
+        deactivateJammer(player);
+        player.sendMessage(ChatColor.translateAlternateColorCodes('&', jammerDeactivatedMessage));
+    }
+
+    /**
+     * Handles player death to deactivate jammer
+     * // note: Toggles off jammer when a player dies and drops their inventory
+     */
+    @EventHandler
+    public void onPlayerDeath(org.bukkit.event.entity.PlayerDeathEvent event) {
+        Player player = event.getEntity();
+
+        if (!isJammerActive(player)) {
+            return;
+        }
+
+        deactivateJammer(player);
+        player.sendMessage(ChatColor.translateAlternateColorCodes('&', jammerDeactivatedMessage));
+    }
+
+    /**
+     * Gets the message sent when a jammer blocks an action
+     * // note: Returns the configured jammer blocked message
+     */
+    public String getJammerBlockedMessage() {
+        return jammerBlockedMessage;
+    }
+
+    /**
      * Sends an action bar message to a player // note: Sends action bar message using ProtocolLib for cross-version compatibility
      */
     private void sendActionBar(Player player, String message) {
@@ -279,12 +337,9 @@ public class Jammer implements Listener {
     }
     /**
      * Checks if a player has an active jammer
+     * // note: Verifies if a jammer is active based on expiry time
      */
     public boolean isJammerActive(Player player) {
-        if (!hasJammerInInventory(player)) {
-            return false;
-        }
-
         UUID playerUUID = player.getUniqueId();
         Long expiryTime = activeJammers.get(playerUUID);
 

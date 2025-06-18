@@ -8,10 +8,6 @@ commands:
     description: Manage bounties on players
     usage: /<command> [set|check|cancel|stats|status|give|reload|frenzy|top]
     permission: bountiesplus.bounty
-  particle:
-    description: Toggle bounty particle visibility
-    usage: /<command>
-    permission: bountiesplus.particle
 permissions:
   bountiesplus.bounty:
     description: Allows setting bounties

@@ -8,6 +8,7 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
@@ -15,6 +16,7 @@ import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import tony26.bountiesPlus.BountiesPlus;
+import tony26.bountiesPlus.SkullUtils;
 import tony26.bountiesPlus.utils.CurrencyUtil;
 import tony26.bountiesPlus.utils.PlaceholderContext;
 import tony26.bountiesPlus.utils.Placeholders;
@@ -23,6 +25,7 @@ import tony26.bountiesPlus.utils.VersionUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 public class HunterDenGUI implements InventoryHolder, Listener {
 
@@ -30,12 +33,18 @@ public class HunterDenGUI implements InventoryHolder, Listener {
     private final Player player;
     private final BountiesPlus plugin;
     private String GUI_TITLE;
+    private transient InventoryClickEvent event; // Store event for click type access
+    private final FileConfiguration messagesConfig;
 
+    /**
+     * Constructs the HunterDenGUI for a player // note: Initializes the shop GUI with items, borders, and registers listeners
+     */
     public HunterDenGUI(Player player) {
         this.player = player;
         this.plugin = BountiesPlus.getInstance();
+        this.messagesConfig = plugin.getMessagesConfig(); // Cache messages config for performance
 
-        FileConfiguration config = plugin.getHuntersDenConfig(); // Fixed method name
+        FileConfiguration config = plugin.getHuntersDenConfig();
         this.GUI_TITLE = ChatColor.translateAlternateColorCodes('&',
                 config.getString("gui-title", "&4&l⚔ Hunter's Den ⚔"));
 
@@ -93,15 +102,25 @@ public class HunterDenGUI implements InventoryHolder, Listener {
     }
 
     /**
-     * Check if player has enough bounty skulls with minimum value
+     * Checks if a bounty skull is tied to an active bounty // note: Verifies if the killed player has an active bounty for shop purchase validation
+     */
+    private boolean isSkullActive(ItemStack skull) {
+        UUID killedUUID = SkullUtils.getKilledPlayerUUID(skull);
+        return killedUUID != null && plugin.getBountyManager().hasBounty(killedUUID);
+    }
+
+    /**
+     * Checks if player has enough valid bounty skulls with minimum value // note: Validates skull count and status (active or expired/claimed based on allow-expired-skulls setting)
      */
     private boolean checkSkullRequirements(Player player, int requiredCount, double minValue) {
+        FileConfiguration config = plugin.getConfig();
+        boolean allowExpiredSkulls = config.getBoolean("allow-expired-skulls", true);
         int validSkullCount = 0;
 
         for (ItemStack item : player.getInventory().getContents()) {
             if (isBountySkull(item)) {
                 double skullValue = extractBountyValueFromSkull(item);
-                if (skullValue >= minValue) {
+                if (skullValue >= minValue && (allowExpiredSkulls || isSkullActive(item))) {
                     validSkullCount += item.getAmount();
                     if (validSkullCount >= requiredCount) {
                         return true;
@@ -110,13 +129,19 @@ public class HunterDenGUI implements InventoryHolder, Listener {
             }
         }
 
+        if (!allowExpiredSkulls) {
+            sendMessage(player, Placeholders.apply(messagesConfig.getString("invalid-skull", "&cOnly active bounty skulls can be used for this purchase!"), PlaceholderContext.create().player(player)));
+        }
+
         return false;
     }
 
     /**
-     * Remove required skulls from player inventory
+     * Removes required valid bounty skulls from player inventory // note: Deducts skulls meeting value and status requirements (active or expired/claimed based on allow-expired-skulls setting)
      */
     private boolean removeSkullsFromInventory(Player player, int requiredCount, double minValue) {
+        FileConfiguration config = plugin.getConfig();
+        boolean allowExpiredSkulls = config.getBoolean("allow-expired-skulls", true);
         int remainingToRemove = requiredCount;
 
         for (ItemStack item : player.getInventory().getContents()) {
@@ -124,7 +149,7 @@ public class HunterDenGUI implements InventoryHolder, Listener {
 
             if (isBountySkull(item)) {
                 double skullValue = extractBountyValueFromSkull(item);
-                if (skullValue >= minValue) {
+                if (skullValue >= minValue && (allowExpiredSkulls || isSkullActive(item))) {
                     int currentAmount = item.getAmount();
                     int toRemove = Math.min(currentAmount, remainingToRemove);
 
@@ -139,6 +164,11 @@ public class HunterDenGUI implements InventoryHolder, Listener {
             }
         }
 
+        if (!allowExpiredSkulls && remainingToRemove > 0) {
+            sendMessage(player, Placeholders.apply(messagesConfig.getString("invalid-skull", "&cOnly active bounty skulls can be used for this purchase!"), PlaceholderContext.create().player(player)));
+        }
+
+        player.updateInventory();
         return remainingToRemove <= 0;
     }
 
@@ -165,7 +195,7 @@ public class HunterDenGUI implements InventoryHolder, Listener {
     }
 
     /**
-     * Check if item is a bounty skull // note: Identifies bounty skulls by lore
+     * Checks if an item is a bounty skull // note: Identifies bounty skulls by lore containing BOUNTY_SKULL identifier or matching config.yml bounty-skull format
      */
     public static boolean isBountySkull(ItemStack item) {
         if (item == null) {
@@ -181,9 +211,31 @@ public class HunterDenGUI implements InventoryHolder, Listener {
         }
         List<String> lore = meta.getLore();
         if (lore == null) return false;
+        // Check for explicit BOUNTY_SKULL identifier
         for (String line : lore) {
-            if (line.contains("Bounty Value:") || line.contains("BOUNTY_SKULL")) {
+            if (line.contains(ChatColor.DARK_GRAY + "" + ChatColor.MAGIC + "BOUNTY_SKULL")) {
                 return true;
+            }
+        }
+        // Fallback: Check for lore matching config.yml bounty-skull format
+        BountiesPlus plugin = BountiesPlus.getInstance();
+        FileConfiguration config = plugin.getConfig();
+        List<String> expectedLore = config.getStringList("bounty-skull.lore");
+        if (expectedLore.isEmpty()) {
+            return false;
+        }
+        // Basic check: lore contains at least one expected line (e.g., "This is the head of a wanted criminal!")
+        for (String expectedLine : expectedLore) {
+            String cleanExpected = ChatColor.stripColor(ChatColor.translateAlternateColorCodes('&', expectedLine))
+                    .replace("%target%", "").replace("%total_bounty%", "")
+                    .replace("%bounty_count%", "").replace("%killer%", "")
+                    .replace("%death_time%", "").trim();
+            if (cleanExpected.isEmpty()) continue;
+            for (String actualLine : lore) {
+                String cleanActual = ChatColor.stripColor(actualLine).trim();
+                if (cleanActual.contains(cleanExpected)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -453,7 +505,9 @@ public class HunterDenGUI implements InventoryHolder, Listener {
         for (String itemId : config.getConfigurationSection("shop-items").getKeys(false)) {
             int itemSlot = config.getInt("shop-items." + itemId + ".slot", -1);
             if (slot == itemSlot) {
+                this.event = event; // Store event for click type access
                 handleShopItemClick(clickingPlayer, itemId, config);
+                this.event = null; // Clear event
                 return;
             }
         }
@@ -509,7 +563,7 @@ public class HunterDenGUI implements InventoryHolder, Listener {
     }
 
     /**
-     * Process the purchase based on currency type
+     * Processes a purchase based on the selected currency type // note: Deducts money, XP, or skulls and returns true on success
      */
     private boolean processPurchase(Player player, String itemId, String currencyType, double price, int xpPrice) {
         FileConfiguration config = plugin.getHuntersDenConfig();
@@ -539,26 +593,16 @@ public class HunterDenGUI implements InventoryHolder, Listener {
                 return false;
 
             case "combined":
-                // NEW: Process combined purchase - charge ALL currencies
                 int combinedSkullCount = config.getInt(basePath + ".skull-count", 1);
                 double combinedMinSkullValue = config.getDouble(basePath + ".min-skull-value", 100.0);
-
-                // Check if player has all required currencies
                 if (hasEnoughMoney(player, price) &&
                         hasEnoughXP(player, xpPrice) &&
                         checkSkullRequirements(player, combinedSkullCount, combinedMinSkullValue)) {
-
-                    // Charge all three currencies
                     plugin.getEconomy().withdrawPlayer(player, price);
                     removeExperience(player, xpPrice);
                     removeSkullsFromInventory(player, combinedSkullCount, combinedMinSkullValue);
                     return true;
                 }
-                return false;
-
-            case "multi":
-                // For multi-currency, we need to determine which currency was used
-                // This would need additional logic based on click type
                 return false;
 
             default:
@@ -570,25 +614,67 @@ public class HunterDenGUI implements InventoryHolder, Listener {
         }
     }
 
-    // Update the handleShopItemClick method to use the corrected signature:
+    /**
+     * Handles shop item clicks in the Hunter's Den GUI // note: Processes purchases with money, XP, or skulls based on click type for multi currency
+     */
     private void handleShopItemClick(Player player, String itemId, FileConfiguration config) {
         String basePath = "shop-items." + itemId;
         String currencyType = config.getString(basePath + ".currency-type", "money");
         double price = config.getDouble(basePath + ".price", 0.0);
         int xpPrice = config.getInt(basePath + ".xp-price", 0);
+        int skullCount = config.getInt(basePath + ".skull-count", 1);
+        double minSkullValue = config.getDouble(basePath + ".min-skull-value", 100.0);
+        ClickType clickType = event.getClick();
 
-        // Check currency requirements (pass itemId parameter)
-        if (!checkCurrencyRequirements(player, currencyType, price, xpPrice, config, itemId)) {
-            // Send insufficient funds message
-            String insufficientMessage = config.getString(basePath + ".insufficient-message", "&cInsufficient funds!");
-            sendMessage(player, insufficientMessage);
+        // For multi currency, determine selected currency based on click type
+        String selectedCurrency = currencyType;
+        if (currencyType.equalsIgnoreCase("multi")) {
+            if (clickType == ClickType.LEFT) {
+                selectedCurrency = "money";
+            } else if (clickType == ClickType.SHIFT_LEFT || clickType == ClickType.SHIFT_RIGHT) {
+                selectedCurrency = "xp";
+            } else if (clickType == ClickType.RIGHT) {
+                selectedCurrency = "skulls";
+            } else {
+                String invalidClick = config.getString("messages.invalid-currency-type", "&cInvalid click type for multi-currency item!");
+                sendMessage(player, invalidClick);
+                return;
+            }
+        }
+
+        // Check currency requirements
+        if (!checkCurrencyRequirements(player, selectedCurrency, price, xpPrice, config, itemId)) {
+            String insufficientMessage;
+            PlaceholderContext context = PlaceholderContext.create()
+                    .player(player)
+                    .moneyValue(price)
+                    .expValue(xpPrice)
+                    .itemCount(skullCount)
+                    .withAmount(minSkullValue);
+            switch (selectedCurrency.toLowerCase()) {
+                case "money":
+                    insufficientMessage = config.getString(basePath + ".insufficient-message", "&cYou need $%price% to purchase this item!");
+                    break;
+                case "xp":
+                    insufficientMessage = config.getString(basePath + ".insufficient-message", "&cYou need %xp_price% XP to purchase this item!");
+                    break;
+                case "skulls":
+                    insufficientMessage = config.getString(basePath + ".insufficient-message", "&cYou need %skull_count% bounty skulls worth at least $%min_skull_value% each!");
+                    break;
+                default:
+                    insufficientMessage = config.getString(basePath + ".insufficient-message", "&cInsufficient funds!");
+            }
+            sendMessage(player, Placeholders.apply(insufficientMessage, context));
             return;
         }
 
         // Process purchase
-        if (processPurchase(player, itemId, currencyType, price, xpPrice)) {
-            // Execute success commands
-            List<String> commands = config.getStringList(basePath + ".commands");
+        if (processPurchase(player, itemId, selectedCurrency, price, xpPrice)) {
+            // Execute success commands based on currency
+            List<String> commands = config.getStringList(basePath + ".commands." + selectedCurrency);
+            if (commands.isEmpty()) {
+                commands = config.getStringList(basePath + ".commands");
+            }
             executeCommands(player, commands);
 
             // Send success message

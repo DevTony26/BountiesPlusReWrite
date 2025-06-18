@@ -1,29 +1,19 @@
+#####################################################################################
 # BountyGUI Configuration
-# Available Placeholders (via PlaceholderAPI):
-# %bountiesplus_target% - Target player name
-# %bountiesplus_sponsor% - Setter player name
-# %bountiesplus_amount% - Individual bounty amount
-# %bountiesplus_total_amount% - Total bounty amount on target
-# %bountiesplus_online_status% - Online/Offline status
-# %bountiesplus_multiplier% - Boost multiplier (if boosted)
-# %bountiesplus_set_time% - Time the bounty was set
-# %bountiesplus_expire_time% - Time the bounty expires
-# %bountiesplus_sponsor_list% - Comma-separated list of sponsors
-# %bountiesplus_boost% - Boost multiplier for the target
-# %bountiesplus_frenzy% - Frenzy mode multiplier
-
-# Main GUI Settings
+#####################################################################################
 gui-title: "          &4&l⚔ &4&l&nBounties&4&l &4&l⚔"
 
+#####################################################################################
 # Border Settings
+#####################################################################################
 border:
-  enabled: true
-  material: BLACK_STAINED_GLASS_PANE
-  name: " "
-  lore: []
+  material: WHITE_STAINED_GLASS_PANE
   enchantment-glow: false
+  slots: [0,1,2,3,4,5,6,7,8,9,17,18,26,27,35,36,44,45,46,47,48,49,50,51,52,53]
 
+#####################################################################################
 # Bounty Item Display (Player heads in center area)
+#####################################################################################
 bounty-item:
   name: "&4&l%bountiesplus_target% &7&l&o(&4&l&o%bountiesplus_online_status%&7&l&o)"
   lore:
@@ -35,7 +25,9 @@ bounty-item:
     - "&4 &4|l &7Boost: &4%bountiesplus_multiplier%x"
     - "&8&m-------------------"
 
+#####################################################################################
 # Boosted Skull Display (used when a bounty is boosted)
+#####################################################################################
 boosted-skull:
   name: "&6&l%bountiesplus_target% &7&l(&6Boosted %bountiesplus_boost%x)"
   lore:
@@ -48,7 +40,9 @@ boosted-skull:
     - "&8&m-------------------"
   enchantment-glow: true
 
+#####################################################################################
 # Frenzy Skull Display (used during Frenzy Mode for all bounties)
+#####################################################################################
 frenzy-skull:
   name: "&c&l%bountiesplus_target% &7&l(&cFrenzy %bountiesplus_frenzy%x)"
   lore:
@@ -61,7 +55,9 @@ frenzy-skull:
     - "&8&m-------------------"
   enchantment-glow: true
 
+#####################################################################################
 # Button Configurations with Slots
+#####################################################################################
 filter-button:
   slot: 47
   material: FIREWORK_STAR
@@ -206,41 +202,3 @@ next-page-button:
     - "&7Go to next page"
     - "&7Page %bountiesplus_current_page% of %bountiesplus_total_pages%"
   enchantment-glow: false
-
-border-filler:
-  slot: 52
-
-# Layout Reference:
-# ┌─────────────────────────────────────┐
-# │ B B B B B B B B B │ <- Border (Top)
-# │ B . . . . . . . B │ <- Border sides, center area for bounties
-# │ B . . . . . . . B │ <- 3 rows of 7 bounty items each
-# │ B . . . . . . . B │ <- (21 total bounty slots)
-# │ B . . . . . . . B │ <- Border sides
-# │ P 46 F 48 I 50 B N │ <- Bottom buttons (dynamic)
-# └─────────────────────────────────────┘
-#
-# Legend:
-# B = Border item
-# . = Bounty item slots (10-16, 19-25, 28-34)
-# P = Previous (45) - only when has previous page
-# F = Filter (47), H = Hunters Den (48) - only when shop enabled
-# I = How It Works/Bounty Hunter (49/51), C = Create (50)
-# B = Border/Empty (52), N = Next (53) - only when has next page
-
-# Color Configuration Examples:
-# You can use either RGB values OR hex values for colors
-# RGB format:
-#   red: 255
-#   green: 0
-#   blue: 0
-#
-# Hex format:
-#   hex: "#FF0000"
-#
-# Available firework effect types:
-# - STAR (default)
-# - BALL
-# - BALL_LARGE
-# - BURST
-# - CREEPER

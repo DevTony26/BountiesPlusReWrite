@@ -308,28 +308,37 @@ public class CreateGUI implements InventoryHolder, Listener {
      */
     private void addCustomFillerItems() {
         FileConfiguration config = plugin.getCreateGUIConfig();
+        DebugManager debugManager = plugin.getDebugManager();
+
         if (!config.contains("Custom-Items")) {
-            plugin.getLogger().warning("Missing 'Custom-Items' section in CreateGUI.yml, using default filler");
+            debugManager.logWarning("Missing 'Custom-Items' section in CreateGUI.yml, using default filler");
             addDefaultFillerItem();
             return;
         }
-        // Get custom items configuration
+
         for (String itemKey : config.getConfigurationSection("Custom-Items").getKeys(false)) {
             String path = "Custom-Items." + itemKey;
             String materialName = config.getString(path + ".Material", "WHITE_STAINED_GLASS_PANE");
             Material material = VersionUtils.getMaterialSafely(materialName, "WHITE_STAINED_GLASS_PANE");
-            if (!VersionUtils.isGlassPane(new ItemStack(material))) {
-                plugin.getLogger().warning("Invalid material '" + materialName + "' for custom item '" + itemKey + "' in CreateGUI.yml, using WHITE_STAINED_GLASS_PANE");
+            if (!VersionUtils.isGlassPane(new ItemStack(material)) && material != Material.STONE) {
+                String errorMessage = config.getString("messages.invalid-material", "&cInvalid material %bountiesplus_material% for %bountiesplus_button%!");
+                errorMessage = errorMessage.replace("%bountiesplus_material%", materialName).replace("%bountiesplus_button%", itemKey);
+                PlaceholderContext context = PlaceholderContext.create().player(player);
+                player.sendMessage(Placeholders.apply(errorMessage, context));
+                debugManager.logWarning("Invalid material '" + materialName + "' for custom item '" + itemKey + "' in CreateGUI.yml, using WHITE_STAINED_GLASS_PANE");
                 material = VersionUtils.getWhiteGlassPaneMaterial();
             }
+
             String name = config.getString(path + ".Name", " ");
             List<String> lore = config.getStringList(path + ".Lore");
             boolean enchantmentGlow = config.getBoolean(path + ".Enchantment-Glow", false);
             List<Integer> slots = config.getIntegerList(path + ".Slots");
+
             if (slots.isEmpty()) {
-                plugin.getLogger().warning("No slots defined for custom item '" + itemKey + "' in CreateGUI.yml, skipping");
+                debugManager.logWarning("No slots defined for custom item '" + itemKey + "' in CreateGUI.yml, skipping");
                 continue;
             }
+
             ItemStack fillerItem = new ItemStack(material);
             ItemMeta meta = fillerItem.getItemMeta();
             if (meta != null) {
@@ -344,16 +353,17 @@ public class CreateGUI implements InventoryHolder, Listener {
                 }
                 fillerItem.setItemMeta(meta);
             }
-            // Apply filler item to specified slots, only if not already occupied
+
             for (int slot : slots) {
                 if (slot >= 0 && slot < 54) {
                     ItemStack existingItem = inventory.getItem(slot);
                     if (existingItem == null || existingItem.getType() == Material.AIR) {
                         inventory.setItem(slot, fillerItem);
                         protectedSlots.add(slot);
+                        debugManager.bufferDebug("Placed custom filler item '" + itemKey + "' in slot " + slot + " for " + player.getName());
                     }
                 } else {
-                    plugin.getLogger().warning("Invalid slot " + slot + " for custom item '" + itemKey + "' in CreateGUI.yml (must be 0-53)");
+                    debugManager.logWarning("Invalid slot " + slot + " for custom item '" + itemKey + "' in CreateGUI.yml");
                 }
             }
         }
@@ -890,82 +900,63 @@ public class CreateGUI implements InventoryHolder, Listener {
         return button;
     }
 
+    /**
+     * Handles inventory click events for the CreateGUI // note: Manages button and player head interactions
+     */
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (!event.getWhoClicked().equals(this.player)) return;
         if (!event.getView().getTitle().equals(GUI_TITLE)) return;
 
-
         Player clickingPlayer = (Player) event.getWhoClicked();
         ItemStack clickedItem = event.getCurrentItem();
         int slot = event.getSlot();
+        DebugManager debugManager = plugin.getDebugManager();
 
-        // Always cancel click in protected slots
         if (protectedSlots.contains(slot)) {
             event.setCancelled(true);
-
             if (clickedItem == null || !clickedItem.hasItemMeta()) return;
 
-            // Handle pagination buttons first
+            FileConfiguration config = BountiesPlus.getInstance().getCreateGUIConfig();
+
             if (slot == 45 && clickedItem.getType() == Material.ARROW) {
-                // Previous page
                 if (currentPage > 0) {
                     currentPage--;
                     refreshGUI();
+                    debugManager.bufferDebug("Previous page clicked by " + clickingPlayer.getName());
                 }
-                return;
             } else if (slot == 53 && clickedItem.getType() == Material.ARROW) {
-                // Next page
                 int totalPages = (int) Math.ceil((double) availablePlayers.size() / 28.0);
                 if (currentPage < totalPages - 1) {
                     currentPage++;
                     refreshGUI();
+                    debugManager.bufferDebug("Next page clicked by " + clickingPlayer.getName());
                 }
-                return;
-            }
-
-            // Handle button clicks based on slot configuration
-            FileConfiguration config = BountiesPlus.getInstance().getCreateGUIConfig();
-
-            if (slot == config.getInt("confirm-button.slot", 52)) {
-                // ==================== NEW LAZY SESSION CREATION ====================
+            } else if (slot == config.getInt("confirm-button.slot", 52)) {
                 BountyCreationSession session = BountyCreationSession.getOrCreateSession(clickingPlayer);
                 handleConfirmButton(clickingPlayer, session);
             } else if (slot == config.getInt("add-money-button.slot", 48)) {
-                // ==================== NEW LAZY SESSION CREATION ====================
                 BountyCreationSession session = BountyCreationSession.getOrCreateSession(clickingPlayer);
                 handleAddMoneyButton(clickingPlayer, session);
             } else if (slot == config.getInt("add-experience-button.slot", 47)) {
-                // ==================== NEW LAZY SESSION CREATION ====================
                 BountyCreationSession session = BountyCreationSession.getOrCreateSession(clickingPlayer);
                 handleAddExperienceButton(clickingPlayer, session);
             } else if (slot == config.getInt("add-time-button.slot", 51)) {
-                // ==================== NEW LAZY SESSION CREATION ====================
                 BountyCreationSession session = BountyCreationSession.getOrCreateSession(clickingPlayer);
                 handleAddTimeButton(clickingPlayer, session);
             } else if (slot == config.getInt("total-bounty-value-button.slot", 49)) {
-                // ==================== NEW LAZY SESSION CREATION ====================
                 BountyCreationSession session = BountyCreationSession.getOrCreateSession(clickingPlayer);
                 handleTotalValueButton(clickingPlayer, session);
-            } else if (slot == config.getInt("add-Items-button.slot", 50)) {
-                // ==================== NEW LAZY SESSION CREATION ====================
+            } else if (slot == config.getInt("add-items-button.slot", 50)) {
                 BountyCreationSession session = BountyCreationSession.getOrCreateSession(clickingPlayer);
                 handleAddItemsButton(clickingPlayer, session);
             } else if (slot == config.getInt("cancel-button.slot", 46)) {
                 handleCancelButton(clickingPlayer);
-            } else {
-                // Check if the clicked item is a player head/skull
-                String itemTypeName = clickedItem.getType().name();
-                if (itemTypeName.contains("SKULL") || itemTypeName.contains("HEAD")) {
-                    // Create or get existing session
-                    BountyCreationSession session = BountyCreationSession.getOrCreateSession(clickingPlayer);
-                    // Handle the player head click
-                    handlePlayerHeadClick(clickingPlayer, clickedItem, session);
-                }
-
+            } else if (clickedItem.getType().name().contains("SKULL") || clickedItem.getType().name().contains("HEAD")) {
+                BountyCreationSession session = BountyCreationSession.getOrCreateSession(clickingPlayer);
+                handlePlayerHeadClick(clickingPlayer, clickedItem, session);
             }
         }
-        // Allow item placement in non-protected slots (though there shouldn't be any in this GUI)
     }
 
     /**

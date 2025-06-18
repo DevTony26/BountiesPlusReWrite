@@ -12,6 +12,7 @@ import tony26.bountiesPlus.SkullUtils;
 import tony26.bountiesPlus.utils.VersionUtils;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 
 public class PlayerDeathListener implements Listener {
 
@@ -23,37 +24,71 @@ public class PlayerDeathListener implements Listener {
     }
 
     /**
-     * Handles player death events to process bounties // note: Processes bounty claims, drops skulls, and updates tablist
+     * Handles player death events
+     * // note: Processes bounty claims and updates stats for killer and victim
      */
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
-        Player killed = event.getEntity();
-        Player killer = killed.getKiller();
-        if (killer == null) return;
-        UUID killedUUID = killed.getUniqueId();
+        Player victim = event.getEntity();
+        Player killer = victim.getKiller();
+        BountyManager bountyManager = plugin.getBountyManager();
+
+        if (killer == null || killer.equals(victim)) return;
+
+        // Check if players are in the same group
+        BountyTeamCheck teamCheck = new BountyTeamCheck(plugin);
+        if (teamCheck.arePlayersInSameGroup(killer, victim)) {
+            return; // Error message sent by BountyTeamCheck
+        }
+
+        UUID victimUUID = victim.getUniqueId();
         UUID killerUUID = killer.getUniqueId();
-        Map<UUID, Integer> bounties = plugin.getBountyManager().getBountiesOnTarget(killedUUID);
-        if (bounties.isEmpty()) return;
-        boolean requireSkullTurnIn = plugin.getConfig().getBoolean("require-skull-turn-in", true);
-        FileConfiguration messagesConfig = plugin.getMessagesConfig();
-        if (requireSkullTurnIn) {
-            ItemStack skull = SkullUtils.createCustomBountySkull(killed, bounties, killer);
-            if (skull != null) {
-                killed.getWorld().dropItemNaturally(killed.getLocation(), skull);
+
+        if (!bountyManager.hasBounty(victimUUID)) return;
+
+        Map<UUID, Integer> bounties = bountyManager.getBountiesOnTarget(victimUUID);
+        double totalMoney = bounties.values().stream().mapToDouble(Integer::intValue).sum();
+        double totalItemValue = bounties.keySet().stream()
+                .mapToDouble(setterUUID -> bountyManager.getBountyItems(victimUUID, setterUUID).stream()
+                        .mapToDouble(item -> plugin.getItemValueCalculator().calculateItemValue(item)).sum())
+                .sum();
+        double totalValueEarned = totalMoney + totalItemValue;
+
+        double manualMoneyBoost = bountyManager.getManualMoneyBoostMultiplier(victimUUID);
+        double manualXpBoost = bountyManager.getManualXpBoostMultiplier(victimUUID);
+        double boostedAmount = totalMoney * manualMoneyBoost;
+        int xpReward = manualXpBoost > 1.0 ? (int) (totalMoney * manualXpBoost * 0.1) : 0;
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                int currentClaimed = plugin.getMySQL().getClaimed(killerUUID).get();
+                int currentSurvived = plugin.getMySQL().getSurvived(victimUUID).get();
+                double currentMoneyEarned = plugin.getMySQL().getMoneyEarned(killerUUID).get();
+                int currentXPEarned = plugin.getMySQL().getXPEarned(killerUUID).get();
+                double currentTotalValueEarned = plugin.getMySQL().getTotalValueEarned(killerUUID).get();
+
+                plugin.getMySQL().setClaimed(killerUUID, currentClaimed + 1).get();
+                plugin.getMySQL().setSurvived(victimUUID, currentSurvived + 1).get();
+                plugin.getMySQL().setMoneyEarned(killerUUID, currentMoneyEarned + boostedAmount).get();
+                plugin.getMySQL().setXPEarned(killerUUID, currentXPEarned + xpReward).get();
+                plugin.getMySQL().setTotalValueEarned(killerUUID, currentTotalValueEarned + totalValueEarned).get();
+            } catch (Exception e) {
+                plugin.getLogger().warning("Failed to update stats for " + killerUUID + " or " + victimUUID + ": " + e.getMessage());
             }
-            sendSkullDropMessages(killer, killed, messagesConfig);
-        } else {
-            processBountyClaims(killer, killed, bounties, messagesConfig);
+        });
+
+        if (BountiesPlus.getEconomy() != null && boostedAmount > 0) {
+            BountiesPlus.getEconomy().depositPlayer(killer, boostedAmount);
         }
-        for (UUID setterUUID : bounties.keySet()) {
-            plugin.getBountyManager().removeBounty(setterUUID, killedUUID);
+        if (xpReward > 0) {
+            Bukkit.getScheduler().runTask(plugin, () -> killer.giveExp(xpReward));
         }
-        updateKillerStats(killerUUID, bounties);
-        updateKilledStats(killedUUID);
-        if (plugin.isBountySoundEnabled()) {
-            playBountySound(killer);
-        }
-        plugin.getTablistManager().removeTablistName(killed); // Remove tablist name after bounties cleared
+
+        FileConfiguration messagesConfig = plugin.getMessagesConfig();
+        processBountyClaims(killer, victim, bounties, messagesConfig);
+        sendSkullDropMessages(killer, victim, messagesConfig);
+
+        bountyManager.clearBounties(victimUUID);
     }
 
     private void sendSkullDropMessages(Player killer, Player killed, FileConfiguration messagesConfig) {

@@ -20,6 +20,7 @@ import tony26.bountiesPlus.GUIs.TopGUI;
 import tony26.bountiesPlus.utils.MessageUtils;
 import tony26.bountiesPlus.utils.PlaceholderContext;
 import tony26.bountiesPlus.utils.Placeholders;
+import tony26.bountiesPlus.utils.TimeFormatter;
 
 import java.util.*;
 
@@ -32,8 +33,7 @@ public class BountyCommand implements CommandExecutor {
     }
 
     /**
-     * Handles the /bounty command execution
-     * // note: Dispatches to appropriate subcommand based on arguments
+     * Handles the /bounty command execution // note: Dispatches to appropriate subcommand based on arguments
      */
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -47,7 +47,6 @@ public class BountyCommand implements CommandExecutor {
         Player player = (Player) sender;
         FileConfiguration messagesConfig = plugin.getMessagesConfig();
         FileConfiguration config = plugin.getConfig();
-        boolean allowTime = config.getBoolean("allow-time", false);
 
         if (args.length == 0) {
             if (config.getBoolean("require-skull-turn-in", true)) {
@@ -61,7 +60,7 @@ public class BountyCommand implements CommandExecutor {
         String subCommand = args[0].toLowerCase();
         switch (subCommand) {
             case "set":
-                return handleSetCommand(player, args, messagesConfig, config, allowTime);
+                return handleSetCommand(player, args, config, messagesConfig);
             case "check":
                 return handleCheckCommand(player, args, messagesConfig);
             case "cancel":
@@ -73,7 +72,7 @@ public class BountyCommand implements CommandExecutor {
             case "give":
                 return handleGiveCommand(sender, args);
             case "reload":
-                return handleReloadCommand(player, args, messagesConfig, allowTime);
+                return handleReloadCommand(player, args, messagesConfig, config.getBoolean("allow-time", false));
             case "frenzy":
                 return handleFrenzyCommand(sender, args, messagesConfig);
             case "preview":
@@ -489,175 +488,208 @@ public class BountyCommand implements CommandExecutor {
 
 
     /**
-     * Handles the /bounty set command // note: Processes bounty placement with validation and tax handling
+     * Handles the /bounty set command // note: Processes bounty placement with validation for amount, time, and permissions
      */
-    private boolean handleSetCommand(Player player, String[] args, FileConfiguration messagesConfig, FileConfiguration config, boolean allowTime) {
-        if (!player.hasPermission("bountiesplus.bounty")) {
-            String noPermission = messagesConfig.getString("no-permission", "%prefix%&cYou do not have permission to use this command.");
-            noPermission = noPermission.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', noPermission));
-            return true;
-        }
-
-        if (args.length < 3 || (allowTime && args.length == 4)) {
-            String usageMessage = messagesConfig.getString("bounty-usage", "%prefix%&eUsage: /bounty set <player> <amount>" + (allowTime ? " [<time> <Minutes|Hours|Days>]" : "") + " or /bounty check <player> or /bounty cancel or /bounty stats or /bounty reload");
-            usageMessage = usageMessage.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', usageMessage));
-            return true;
-        }
-
-        if (allowTime && args.length > 5) {
-            String usageMessage = messagesConfig.getString("bounty-usage", "%prefix%&eUsage: /bounty set <player> <amount> [<time> <Minutes|Hours|Days>] or /bounty check <player> or /bounty cancel or /bounty stats or /bounty reload");
-            usageMessage = usageMessage.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', usageMessage));
+    private boolean handleSetCommand(Player player, String[] args, FileConfiguration config, FileConfiguration messagesConfig) {
+        if (args.length < 3) {
+            String usage = messagesConfig.getString("bounty-usage", "%prefix%&eUsage: /bounty set <player> <amount> [<time> <Minutes|Hours|Days>]");
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&', usage.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"))));
             return true;
         }
 
         String targetName = args[1];
-        OfflinePlayer target = Bukkit.getOfflinePlayer(targetName);
+        Player targetPlayer = Bukkit.getPlayerExact(targetName);
+        OfflinePlayer target;
+        if (targetPlayer != null) {
+            target = targetPlayer;
+        } else {
+            target = Bukkit.getOfflinePlayer(targetName);
+            if (!config.getBoolean("allow-offline-players", true) || !target.hasPlayedBefore()) {
+                String notFound = messagesConfig.getString("bounty-player-not-found", "%prefix%&cPlayer &e%target%&c not found.");
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', notFound.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%target%", targetName)));
+                return true;
+            }
+        }
 
-        if (target == null || !target.hasPlayedBefore()) {
-            String playerNotFound = messagesConfig.getString("bounty-player-not-found", "%prefix%&cPlayer &e%target%&c not found.");
-            playerNotFound = playerNotFound.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-            playerNotFound = playerNotFound.replace("%target%", targetName);
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', playerNotFound));
+        if (target.getUniqueId().equals(player.getUniqueId())) {
+            String selfBounty = messagesConfig.getString("bounty-set-self", "%prefix%&cYou cannot place a bounty on yourself.");
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&', selfBounty.replace("%prefix%", messagesConfig.getString("prefix", ""))));
             return true;
         }
 
-        UUID setterUUID = player.getUniqueId();
-        UUID targetUUID = target.getUniqueId();
-
-        if (setterUUID.equals(targetUUID)) {
-            String setSelf = messagesConfig.getString("bounty-set-self", "%prefix%&cYou cannot place a bounty on yourself.");
-            setSelf = setSelf.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', setSelf));
-            return true;
+        // Check if players are in the same group
+        BountyTeamCheck teamCheck = new BountyTeamCheck(plugin);
+        if (teamCheck.arePlayersInSameGroup(player, target)) {
+            return true; // Error message sent by BountyTeamCheck
         }
 
-        // Check if the setter and target have the same IP address, if restriction is enabled
-        boolean restrictSameIP = plugin.getConfig().getBoolean("restrict-same-ip-bounties", true);
+        boolean restrictSameIP = config.getBoolean("restrict-same-ip-bounties", true);
         if (restrictSameIP && target.isOnline()) {
-            Player targetPlayer = target.getPlayer();
             String setterIP = player.getAddress().getAddress().getHostAddress();
             String targetIP = targetPlayer.getAddress().getAddress().getHostAddress();
             if (setterIP.equals(targetIP)) {
                 String sameIP = messagesConfig.getString("bounty-same-ip", "%prefix%&cYou cannot place a bounty on a player with the same IP address.");
-                sameIP = sameIP.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&', sameIP));
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', sameIP.replace("%prefix%", messagesConfig.getString("prefix", ""))));
                 return true;
             }
         }
 
-        int amount;
+        double amount;
         try {
-            amount = Integer.parseInt(args[2]);
+            amount = Double.parseDouble(args[2]);
+            if (amount <= 0) {
+                String invalidAmount = messagesConfig.getString("bounty-invalid-amount", "%prefix%&cInvalid amount: &e%amount%&c! Please enter a positive number.");
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', invalidAmount.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%amount%", args[2])));
+                return true;
+            }
+            double minBountyAmount = config.getDouble("min-bounty-amount", 100.0);
+            double maxBountyAmount = config.getDouble("max-bounty-amount", 1000000.0);
+            if (amount < minBountyAmount) {
+                String invalidAmount = messagesConfig.getString("bounty-invalid-amount", "%prefix%&cAmount must be at least $%bountiesplus_min_amount%!");
+                PlaceholderContext context = PlaceholderContext.create().player(player).moneyValue(minBountyAmount);
+                player.sendMessage(Placeholders.apply(invalidAmount.replace("%prefix%", messagesConfig.getString("prefix", "")), context));
+                return true;
+            }
+            if (amount > maxBountyAmount) {
+                String invalidAmount = messagesConfig.getString("bounty-invalid-amount", "%prefix%&cAmount cannot exceed $%bountiesplus_max_amount%!");
+                PlaceholderContext context = PlaceholderContext.create().player(player).moneyValue(maxBountyAmount);
+                player.sendMessage(Placeholders.apply(invalidAmount.replace("%prefix%", messagesConfig.getString("prefix", "")), context));
+                return true;
+            }
         } catch (NumberFormatException e) {
-            String invalidAmount = messagesConfig.getString("bounty-invalid-amount", "%prefix%&cInvalid amount: &e%amount%&c! Please enter a positive number.");
-            invalidAmount = invalidAmount.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-            invalidAmount = invalidAmount.replace("%amount%", args[2]);
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', invalidAmount));
-            return true;
-        }
-
-        if (amount <= 0) {
-            String invalidAmount = messagesConfig.getString("bounty-invalid-amount", "%prefix%&cInvalid amount: &e%amount%&c! Please enter a positive number.");
-            invalidAmount = invalidAmount.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-            invalidAmount = invalidAmount.replace("%amount%", String.valueOf(amount));
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', invalidAmount));
-            return true;
-        }
-
-        // Handle tax via TaxManager
-        TaxManager taxManager = plugin.getTaxManager();
-        double taxAmount = taxManager.calculateTax(amount, null);
-        if (!taxManager.canAffordTax(player, amount, taxAmount)) {
-            return true;
-        }
-
-        // Deduct money and tax
-        if (!taxManager.deductTax(player, amount, taxAmount)) {
-            player.sendMessage(ChatColor.RED + "Failed to deduct funds!");
+            String invalidFormat = messagesConfig.getString("bounty-invalid-amount-format", "%prefix%&cInvalid amount format! Please enter a number.");
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&', invalidFormat.replace("%prefix%", messagesConfig.getString("prefix", ""))));
             return true;
         }
 
         long expireTime = -1;
-
+        boolean allowTime = config.getBoolean("time.allow-time", false);
+        boolean requireTime = config.getBoolean("time.require-time", false);
+        int minBountyTime = config.getInt("time.min-bounty-time", 3600);
+        int maxBountyTime = config.getInt("time.max-bounty-time", 86400);
         if (allowTime && args.length == 5) {
-            long timeValue;
             try {
-                timeValue = Long.parseLong(args[3]);
-                if (timeValue <= 0) throw new NumberFormatException();
+                long timeValue = Long.parseLong(args[3]);
+                if (timeValue <= 0) {
+                    String invalidTime = messagesConfig.getString("bounty-invalid-time", "%prefix%&cInvalid time: &e%time%&c! Please enter a positive number.");
+                    player.sendMessage(ChatColor.translateAlternateColorCodes('&', invalidTime.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%time%", args[3])));
+                    return true;
+                }
+                String unit = args[4].toLowerCase();
+                long minutes;
+                switch (unit) {
+                    case "m":
+                    case "minutes":
+                        minutes = timeValue;
+                        break;
+                    case "h":
+                    case "hours":
+                        minutes = timeValue * 60;
+                        break;
+                    case "d":
+                    case "days":
+                        minutes = timeValue * 60 * 24;
+                        break;
+                    default:
+                        String invalidUnit = messagesConfig.getString("bounty-invalid-unit", "%prefix%&cInvalid unit: &e%unit%&c! Use Minutes, Hours, or Days.");
+                        player.sendMessage(ChatColor.translateAlternateColorCodes('&', invalidUnit.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%unit%", unit)));
+                        return true;
+                }
+                if (minutes < minBountyTime) {
+                    String invalidTime = messagesConfig.getString("bounty-invalid-time", "%prefix%&cTime must be at least %bountiesplus_min_time%!");
+                    PlaceholderContext context = PlaceholderContext.create().player(player).timeValue(TimeFormatter.formatMinutesToReadable(minBountyTime, false));
+                    player.sendMessage(Placeholders.apply(invalidTime.replace("%prefix%", messagesConfig.getString("prefix", "")), context));
+                    return true;
+                }
+                if (minutes > maxBountyTime) {
+                    String invalidTime = messagesConfig.getString("bounty-invalid-time", "%prefix%&cTime cannot exceed %bountiesplus_max_time%!");
+                    PlaceholderContext context = PlaceholderContext.create().player(player).timeValue(TimeFormatter.formatMinutesToReadable(maxBountyTime, false));
+                    player.sendMessage(Placeholders.apply(invalidTime.replace("%prefix%", messagesConfig.getString("prefix", "")), context));
+                    return true;
+                }
+                expireTime = System.currentTimeMillis() + minutes * 60 * 1000;
             } catch (NumberFormatException e) {
                 String invalidTime = messagesConfig.getString("bounty-invalid-time", "%prefix%&cInvalid time: &e%time%&c! Please enter a positive number.");
-                invalidTime = invalidTime.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-                invalidTime = invalidTime.replace("%time%", args[3]);
-                player.sendMessage(ChatColor.translateAlternateColorCodes('&', invalidTime));
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', invalidTime.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%time%", args[3])));
                 return true;
             }
-
-            String unit = args[4].toLowerCase();
-            switch (unit) {
-                case "m":
-                case "minutes":
-                    expireTime = System.currentTimeMillis() + timeValue * 60 * 1000;
-                    break;
-                case "h":
-                case "hours":
-                    expireTime = System.currentTimeMillis() + timeValue * 60 * 60 * 1000;
-                    break;
-                case "d":
-                case "days":
-                    expireTime = System.currentTimeMillis() + timeValue * 24 * 60 * 60 * 1000;
-                    break;
-                default:
-                    String invalidUnit = messagesConfig.getString("bounty-invalid-unit", "%prefix%&cInvalid unit: &e%unit%&c! Use Minutes, Hours, or Days.");
-                    invalidUnit = invalidUnit.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-                    invalidUnit = invalidUnit.replace("%unit%", args[4]);
-                    player.sendMessage(ChatColor.translateAlternateColorCodes('&', invalidUnit));
-                    return true;
-            }
-            plugin.getLogger().info("Setting bounty with expireTime: " + expireTime + " (" + args[3] + " " + unit + ")");
-            plugin.getLogger().info("Setter UUID: " + setterUUID + ", Target UUID: " + targetUUID);
+        } else if (requireTime) {
+            String timeRequired = messagesConfig.getString("bounty-time-required", "%prefix%&cA time duration is required for bounties!");
+            player.sendMessage(ChatColor.translateAlternateColorCodes('&', timeRequired.replace("%prefix%", messagesConfig.getString("prefix", ""))));
+            return true;
         }
 
-        plugin.getBountyManager().setBounty(setterUUID, targetUUID, amount, expireTime);
-        plugin.reloadAllConfigs();
+        TaxManager taxManager = plugin.getTaxManager();
+        double taxAmount = taxManager.calculateTax(amount, null);
+        double totalCost = amount + taxAmount;
 
-        // Send tax messages
-        taxManager.sendTaxMessages(player, targetUUID, amount, taxAmount);
+        if (!taxManager.canAffordTax(player, amount, taxAmount)) {
+            String insufficientFunds = messagesConfig.getString("bounty-insufficient-funds", "%prefix%&cInsufficient funds! You need &e$%cost%&7 (including &e$%tax%&7 tax). Your balance: &e$%vault_eco_balance%");
+            PlaceholderContext context = PlaceholderContext.create()
+                    .player(player)
+                    .moneyValue(totalCost)
+                    .taxAmount(taxAmount);
+            player.sendMessage(Placeholders.apply(insufficientFunds.replace("%prefix%", messagesConfig.getString("prefix", "")), context));
+            return true;
+        }
+
+        if (!taxManager.deductTax(player, amount, taxAmount)) {
+            String errorMessage = messagesConfig.getString("bounty-insufficient-funds", "%prefix%&cInsufficient funds! You need &e$%cost%&7 (including &e$%tax%&7 tax). Your balance: &e$%vault_eco_balance%");
+            PlaceholderContext context = PlaceholderContext.create()
+                    .player(player)
+                    .moneyValue(totalCost)
+                    .taxAmount(taxAmount);
+            player.sendMessage(Placeholders.apply(errorMessage.replace("%prefix%", messagesConfig.getString("prefix", "")), context));
+            return true;
+        }
+
+        plugin.getBountyManager().setBounty(player.getUniqueId(), target.getUniqueId(), (int) amount, expireTime);
+
+        taxManager.sendTaxMessages(player, target.getUniqueId(), amount, taxAmount);
 
         if (target.isOnline()) {
-            Player targetPlayer = target.getPlayer();
-            String receivedMessage = messagesConfig.getString("bounty-received", "%prefix%&cA bounty of &e%amount%&c has been placed on you by &e%from%&c!");
-            receivedMessage = receivedMessage.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-            receivedMessage = receivedMessage.replace("%amount%", String.valueOf(amount));
-            receivedMessage = receivedMessage.replace("%from%", player.getName());
-            targetPlayer.sendMessage(ChatColor.translateAlternateColorCodes('&', receivedMessage));
+            String received = messagesConfig.getString("bounty-received", "%prefix%&cA bounty of &e%amount%&c has been placed on you by &e%sponsor%&c!");
+            PlaceholderContext context = PlaceholderContext.create()
+                    .player(targetPlayer)
+                    .moneyValue(amount)
+                    .setter(player.getUniqueId());
+            targetPlayer.sendMessage(Placeholders.apply(received.replace("%prefix%", messagesConfig.getString("prefix", "")), context));
+        }
 
-            if (plugin.isBountySoundEnabled()) {
-                String soundName = plugin.getBountySoundName();
-                float volume = plugin.getBountySoundVolume();
-                float pitch = plugin.getBountySoundPitch();
+        String successMessage = allowTime && expireTime != -1 ?
+                messagesConfig.getString("bounty-set-success-timed", "%prefix%&aYou placed a bounty of &e$%amount%&a on &e%target%&a for &e%time% %unit%&a! Tax of &e$%tax%&a was deducted.") :
+                messagesConfig.getString("bounty-set-success", "%prefix%&aYou placed a bounty of &e$%amount%&a on &e%target%&a! Tax of &e$%tax%&a was deducted.");
+        PlaceholderContext context = PlaceholderContext.create()
+                .player(player)
+                .target(target.getUniqueId())
+                .moneyValue(amount)
+                .taxAmount(taxAmount);
+        if (allowTime && expireTime != -1) {
+            long timeValue = (expireTime - System.currentTimeMillis()) / 1000;
+            String unit;
+            long displayTime;
+            if (timeValue >= 24 * 60 * 60) {
+                unit = "Days";
+                displayTime = timeValue / (24 * 60 * 60);
+            } else if (timeValue >= 60 * 60) {
+                unit = "Hours";
+                displayTime = timeValue / (60 * 60);
+            } else {
+                unit = "Minutes";
+                displayTime = timeValue / 60;
+            }
+            context = context.time(String.valueOf(displayTime)).unit(unit);
+        }
+        player.sendMessage(Placeholders.apply(successMessage.replace("%prefix%", messagesConfig.getString("prefix", "")), context));
 
-                try {
-                    Sound sound = Sound.valueOf(soundName);
-                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                        if (targetPlayer.isOnline()) {
-                            targetPlayer.playSound(targetPlayer.getLocation(), sound, volume, pitch);
-                        }
-                    }, 2L);
-                    Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                        if (targetPlayer.isOnline()) {
-                            targetPlayer.playSound(targetPlayer.getLocation(), sound, volume, pitch);
-                        }
-                    }, 12L);
-                } catch (IllegalArgumentException e) {
-                    plugin.getLogger().warning("Invalid sound name: " + soundName + " in config.yml");
-                } catch (Exception e) {
-                    plugin.getLogger().warning("Error playing sound for player " + targetPlayer.getName() + ": " + e.getMessage());
-                }
+        if (plugin.isBountySoundEnabled()) {
+            try {
+                player.getWorld().playSound(player.getLocation(), Sound.valueOf(plugin.getBountySoundName()), plugin.getBountySoundVolume(), plugin.getBountySoundPitch());
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("Invalid sound name: " + plugin.getBountySoundName());
             }
         }
+
         return true;
     }
 
@@ -788,6 +820,10 @@ public class BountyCommand implements CommandExecutor {
         return true;
     }
 
+    /**
+     * Handles the /bounty stats command
+     * // note: Displays a player's bounty statistics
+     */
     private boolean handleStatsCommand(Player player, FileConfiguration messagesConfig) {
         if (!player.hasPermission("bountiesplus.bounty.stats")) {
             String noPermission = messagesConfig.getString("no-permission", "%prefix%&cYou do not have permission to use this command.");
@@ -796,7 +832,7 @@ public class BountyCommand implements CommandExecutor {
             return true;
         }
         BountyStats statsHandler = new BountyStats(plugin);
-        return statsHandler.handleStatsCommand(player);
+        return statsHandler.execute(player, new String[]{});
     }
 
     /**

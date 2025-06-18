@@ -51,7 +51,6 @@ public class BountyManager {
         return manualMoneyBoosts.getOrDefault(targetUUID, 1.0);
     }
 
-
     /**
      * Applies a manual boost to a player's bounty
      * // note: Updates multiplier and expire time in storage
@@ -75,12 +74,8 @@ public class BountyManager {
             }
             sponsor.setExpireTime(expireTime);
         }
-        if (plugin.getMySQL().isConnected()) {
-            plugin.getMySQL().applyManualBoostAsync(targetUUID, multiplier, expireTime).exceptionally(e -> {
-                plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to apply manual boost asynchronously: " + e.getMessage());
-                saveManualBoostToYAML(targetUUID, multiplier, expireTime);
-                return null;
-            });
+        if (plugin.getMySQL().isEnabled()) {
+            saveManualBoostToYAML(targetUUID, multiplier, expireTime);
         } else {
             saveManualBoostToYAML(targetUUID, multiplier, expireTime);
         }
@@ -112,12 +107,8 @@ public class BountyManager {
                 }
                 sponsor.setExpireTime(-1L);
             }
-            if (plugin.getMySQL().isConnected()) {
-                plugin.getMySQL().removeManualBoostAsync(targetUUID).exceptionally(e -> {
-                    plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to remove manual boost asynchronously: " + e.getMessage());
-                    removeManualBoostFromYAML(targetUUID);
-                    return null;
-                });
+            if (plugin.getMySQL().isEnabled()) {
+                removeManualBoostFromYAML(targetUUID);
             } else {
                 removeManualBoostFromYAML(targetUUID);
             }
@@ -151,7 +142,7 @@ public class BountyManager {
         Bounty bounty = bounties.get(target);
         if (bounty != null) {
             if (bounty.removeSponsor(setter)) {
-                if (plugin.getMySQL().isConnected()) {
+                if (plugin.getMySQL().isEnabled()) {
                     plugin.getMySQL().removeBountyAsync(setter, target).exceptionally(e -> {
                         plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to remove bounty asynchronously: " + e.getMessage());
                         removeFromYAML(setter, target);
@@ -177,10 +168,21 @@ public class BountyManager {
      */
     private void loadBounties() {
         bounties.clear();
-        if (plugin.getMySQL().isConnected()) {
+        if (plugin.getMySQL().isEnabled()) {
             plugin.getMySQL().loadBountiesAsync().thenAccept(loadedBounties -> {
                 Bukkit.getScheduler().runTask(plugin, () -> {
-                    bounties.putAll(loadedBounties);
+                    for (Map.Entry<UUID, Map<UUID, Integer>> entry : loadedBounties.entrySet()) {
+                        UUID targetUUID = entry.getKey();
+                        Bounty bounty = new Bounty(plugin, targetUUID);
+                        for (Map.Entry<UUID, Integer> sponsorEntry : entry.getValue().entrySet()) {
+                            UUID setterUUID = sponsorEntry.getKey();
+                            int amount = sponsorEntry.getValue();
+                            bounty.addContribution(setterUUID, amount, 0, 0, new ArrayList<>(), false, true);
+                        }
+                        if (!bounty.getSponsors().isEmpty()) {
+                            bounties.put(targetUUID, bounty);
+                        }
+                    }
                     plugin.getLogger().info("Loaded " + bounties.size() + " bounties from MySQL.");
                 });
             }).exceptionally(e -> {
@@ -264,12 +266,16 @@ public class BountyManager {
      * Sets a bounty with specified parameters
      * // note: Creates or updates a bounty in storage and updates tablist
      */
+    /**
+     * Sets a bounty with specified parameters
+     * // note: Creates or updates a bounty in storage and updates tablist
+     */
     public void setBounty(UUID setter, UUID target, int amount, long expireTime) {
         DebugManager debugManager = plugin.getDebugManager();
         debugManager.logDebug("[BountyManager] Setting bounty: setter=" + setter + ", target=" + target + ", amount=" + amount + ", expireTime=" + expireTime);
         Bounty bounty = bounties.computeIfAbsent(target, k -> new Bounty(plugin, target));
         bounty.addContribution(setter, amount, 0, 0, new ArrayList<>(), false, !bounties.containsKey(target));
-        if (plugin.getMySQL().isConnected()) {
+        if (plugin.getMySQL().isEnabled()) {
             plugin.getMySQL().setBountyAsync(setter, target, amount, expireTime).exceptionally(e -> {
                 plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to set bounty asynchronously: " + e.getMessage());
                 saveToYAML(setter, target, amount, 0, 0, false, expireTime, new ArrayList<>());
@@ -307,12 +313,8 @@ public class BountyManager {
                 ", xp: " + xp + ", duration: " + durationMinutes + " minutes");
         Bounty bounty = bounties.computeIfAbsent(target, k -> new Bounty(plugin, target));
         bounty.addContribution(setter, amount, xp, durationMinutes, items, true, !bounties.containsKey(target));
-        if (plugin.getMySQL().isConnected()) {
-            plugin.getMySQL().addAnonymousBountyAsync(target, setter, amount, xp, durationMinutes, items).exceptionally(e -> {
-                plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to add anonymous bounty asynchronously: " + e.getMessage());
-                saveToYAML(setter, target, amount, xp, durationMinutes, true, -1, items);
-                return null;
-            });
+        if (plugin.getMySQL().isEnabled()) {
+            saveToYAML(setter, target, amount, xp, durationMinutes, true, -1, items);
         } else {
             saveToYAML(setter, target, amount, xp, durationMinutes, true, -1, items);
         }
@@ -341,7 +343,7 @@ public class BountyManager {
      */
     public void clearBounties(UUID target) {
         bounties.remove(target);
-        if (plugin.getMySQL().isConnected()) {
+        if (plugin.getMySQL().isEnabled()) {
             plugin.getMySQL().clearBountiesAsync(target).exceptionally(e -> {
                 plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to clear bounties asynchronously: " + e.getMessage());
                 clearFromYAML(target);
@@ -511,6 +513,26 @@ public class BountyManager {
             plugin.getLogger().info("Removed " + targetsToRemove.size() + " expired bounty targets");
         }
     }
+
+    /**
+     * Retrieves items contributed to a bounty by a setter
+     * // note: Returns the list of items from a specific sponsor’s contribution
+     */
+    public List<ItemStack> getBountyItems(UUID targetUUID, UUID setterUUID) {
+        Bounty bounty = bounties.get(targetUUID);
+        if (bounty == null) {
+            return new ArrayList<>();
+        }
+        for (Bounty.Sponsor sponsor : bounty.getSponsors()) {
+            if (sponsor.getPlayerUUID().equals(setterUUID)) {
+                return sponsor.getItems().stream()
+                        .map(Bounty.BountyItem::getItem)
+                        .collect(Collectors.toList());
+            }
+        }
+        return new ArrayList<>();
+    }
+
     /**
      * Saves a bounty to YAML
      * // note: Updates BountyStorage.yml with bounty data
@@ -602,7 +624,33 @@ public class BountyManager {
         bounties.clear();
     }
 
+    /**
+     * Saves all bounty data to storage // note: Persists active bounties and items to YAML
+     */
     public void saveBounties() {
+        FileConfiguration storage = plugin.getBountiesConfig();
+        storage.set("bounties", null); // Clear existing data
+        storage.set("anonymous-bounties", null); // Clear anonymous data
+        for (Map.Entry<UUID, Bounty> bountyEntry : bounties.entrySet()) {
+            UUID targetUUID = bountyEntry.getKey();
+            Bounty bounty = bountyEntry.getValue();
+            for (Bounty.Sponsor sponsor : bounty.getSponsors()) {
+                UUID setterUUID = sponsor.getPlayerUUID();
+                String path = "bounties." + targetUUID + "." + setterUUID;
+                storage.set(path + ".amount", sponsor.getMoney());
+                storage.set(path + ".xp", sponsor.getXP());
+                storage.set(path + ".duration", sponsor.getDurationMinutes());
+                storage.set(path + ".set_time", sponsor.getSetTime());
+                storage.set(path + ".expire_time", sponsor.getExpireTime());
+                storage.set(path + ".multiplier", sponsor.getMultiplier());
+                storage.set("anonymous-bounties." + targetUUID + "." + setterUUID, sponsor.isAnonymous());
+                List<String> itemStrings = sponsor.getItems().stream()
+                        .filter(item -> item.getItem() != null && !item.getItem().getType().equals(Material.AIR))
+                        .map(item -> item.getItem().getType().name() + ":" + item.getItem().getAmount())
+                        .collect(Collectors.toList());
+                storage.set(path + ".items", itemStrings);
+            }
+        }
         plugin.saveEverything();
     }
 }

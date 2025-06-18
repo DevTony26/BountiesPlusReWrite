@@ -17,14 +17,16 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.scheduler.BukkitRunnable;
+import tony26.bountiesPlus.GUIs.BountyCancel;
 import tony26.bountiesPlus.GUIs.BountyGUI;
 import tony26.bountiesPlus.GUIs.TopGUI;
 import tony26.bountiesPlus.Items.*;
 import tony26.bountiesPlus.utils.*;
 import tony26.bountiesPlus.utils.MessageUtils;
-
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class BountiesPlus extends JavaPlugin implements Listener {
 
@@ -45,23 +47,14 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     private ItemValueCalculator itemValueCalculator;
     private TablistManager tablistManager;
     private DebugManager debugManager;
-    private boolean bountyParticleEnabled;
-    private String bloodParticleName;
-    private String smokeParticleName;
-    private int bloodParticleCountLow;
-    private int bloodParticleCountHigh;
-    private int smokeParticleCountLow;
-    private int smokeParticleCountHigh;
-    private int particleInterval;
-    private int displayRadius;
     private boolean bountySoundEnabled;
     private String bountySoundName;
     private float bountySoundVolume;
     private float bountySoundPitch;
     private String bountyGUITitle;
-    private int taskID;
     private Map<String, ConfigWrapper> configWrappers = new HashMap<>();
     private MySQL mySQL;
+    private ExecutorService executorService;
 
     private class ConfigWrapper {
         private final String name;
@@ -127,11 +120,6 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     public String getBountySoundName() { return bountySoundName; }
     public float getBountySoundVolume() { return bountySoundVolume; }
     public float getBountySoundPitch() { return bountySoundPitch; }
-    public boolean isBountyParticleEnabled() { return bountyParticleEnabled; }
-    public String getBloodParticleName() { return bloodParticleName; }
-    public String getSmokeParticleName() { return smokeParticleName; }
-    public int getParticleInterval() { return particleInterval; }
-    public int getDisplayRadius() { return displayRadius; }
     public MySQL getMySQL() { return mySQL; }
 
     public FileConfiguration getMessagesConfig() {
@@ -167,7 +155,7 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     }
 
     public FileConfiguration getItemValueConfig() {
-        return configWrappers.get("ItemValue").getConfig();
+        return configWrappers.get("items").getConfig();
     }
 
     public FileConfiguration getItemsConfig() {
@@ -178,131 +166,178 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         return configWrappers.get("TopGUI").getConfig();
     }
 
-    /**
-     * Initializes the plugin and its components
-     * // note: Sets up configurations, managers, commands, and listeners
-     */
-    @Override
-    public void onEnable() {
-        instance = this;
-        MessageUtils.initialize(this);
-
-        // Handle config.yml separately
-        if (!new File(getDataFolder(), "config.yml").exists()) {
-            saveDefaultConfig();
-            getLogger().info("Created default config.yml");
-        } else {
-            reloadConfig();
-            getLogger().info("Loaded existing config.yml");
-        }
-
-        // Initialize all other configs
-        String[] configNames = {
-                "messages", "bounties", "stats", "BountyGUI", "CreateGUI",
-                "PreviewGUI", "AddItemsGUI", "HuntersDen", "ItemValue", "items",
-                "TopGUI", "BountyCancelGUI", "BountyStorage", "StatStorage"
-        };
-        for (String name : configNames) {
-            configWrappers.put(name, new ConfigWrapper(name));
-        }
-
-        // Initialize MySQL
-        mySQL = new MySQL(this);
-        if (mySQL.isConnected() && !getConfig().getBoolean("mysql.data-migrated", false)) {
-            mySQL.migrateBountiesAsync().thenRun(() -> {
-                getConfig().set("mysql.data-migrated", true);
-                saveConfig();
-                getLogger().info("Bounty data migration completed.");
-            }).exceptionally(e -> {
-                getLogger().warning("[DEBUG] MySQL Error: Migration failed: " + e.getMessage());
-                return null;
-            });
-        }
-
-        tracker = new Tracker(this);
-        jammer = new Jammer(this);
-        uav = new UAV(this);
-        manualBoost = new ManualBoost(this);
-        manualFrenzy = new ManualFrenzy(this);
-        decreaseTime = new DecreaseTime(this);
-        reverseBounty = new ReverseBounty(this);
-        itemValueCalculator = new ItemValueCalculator(this);
-        getServer().getPluginManager().registerEvents(new BountyCreationChatListener(this), this);
-        if (!setupEconomy()) {
-            getLogger().warning("No Vault-compatible economy plugin found! Bounty payments will not work.");
-        }
-        loadBountyParticleConfig();
-        loadBountySoundConfig();
-        loadBountyGUITitle();
-        loadSkullConfig();
-        debugManager = new DebugManager(this);
-        taxManager = new TaxManager(this);
-        bountyManager = new BountyManager(this);
-        if (getConfig().getBoolean("boosted-bounties.enabled", true)) {
-            boostedBounty = new BoostedBounty(this);
-        } else {
-            boostedBounty = null;
-            getLogger().info("Boosted Bounties are disabled in config.yml");
-        }
-        if (getConfig().getBoolean("anonymous-bounties.enabled", true)) {
-            anonymousBounty = new AnonymousBounty(this);
-        } else {
-            anonymousBounty = null;
-            getLogger().info("Anonymous bounties are disabled in config.yml");
-        }
-        tablistManager = new TablistManager(this);
-        boolean tablistEnabled = getConfig().getBoolean("tablist-modification.enabled", false);
-        debugManager.logDebug("Tablist modification enabled: " + tablistEnabled);
-        new BountyGUI(this);
-        new TopGUI(this);
-        BountyCommand bountyCommand = new BountyCommand(this);
-        PluginCommand bountyCmd = getCommand("bounty");
-        Objects.requireNonNull(bountyCmd).setExecutor(bountyCommand);
-        ParticleCommand particleCommand = new ParticleCommand(this);
-        PluginCommand particleCmd = getCommand("particle");
-        Objects.requireNonNull(particleCmd).setExecutor(particleCommand);
-        BountyTabCompleter tabCompleter = new BountyTabCompleter();
-        Objects.requireNonNull(getCommand("bounty")).setTabCompleter(tabCompleter);
-        new PlayerDeathListener(this);
-        getServer().getPluginManager().registerEvents(this, this);
-        getLogger().info("Using Placeholders class: " + Placeholders.class.getName());
-        if (Bukkit.getPluginManager().isPluginEnabled("CooldownsPlus")) {
-            getLogger().warning("CooldownsPlus detected, potential placeholder conflict with BountiesPlus");
-        }
-        registerPlaceholdersWithDelay();
-        startParticleTask();
-        Bukkit.getScheduler().runTaskLater(this, () -> {
-            if (tablistManager != null) {
-                tablistManager.updateAllTablistNames();
-                debugManager.logDebug("Initial tablist update executed for all online players");
-            }
-        }, 20L);
-        Placeholders.startDebugLoggingTask(this);
-        getLogger().info("BountiesPlus enabled! Running on " + VersionUtils.getVersionString());
+    public FileConfiguration getTeamChecksConfig() {
+        return configWrappers.get("teamchecks").getConfig();
     }
 
     /**
-     * Reloads all plugin configurations and systems
-     * // note: Updates configs, MySQL connection, and dependent settings
+     * Called when the plugin is enabled
+     * // note: Initializes configurations, managers, listeners, commands, and MySQL
+     */
+    @Override
+    public void onEnable() {
+        // --------------------------------------
+        // Plugin Instance and Core Setup
+        // note: Sets up plugin instance and core dependencies
+        // --------------------------------------
+        instance = this;
+        getLogger().info("Starting BountiesPlus initialization...");
+
+        // --------------------------------------
+        // Configuration Files
+        // note: Loads default config and all YAML configuration files
+        // --------------------------------------
+        saveDefaultConfig();
+        configWrappers.put("bounties", new ConfigWrapper("BountyStorage"));
+        configWrappers.put("stats", new ConfigWrapper("StatStorage"));
+        configWrappers.put("messages", new ConfigWrapper("messages"));
+        configWrappers.put("items", new ConfigWrapper("items"));
+        configWrappers.put("BountyGUI", new ConfigWrapper("BountyGUI"));
+        configWrappers.put("CreateGUI", new ConfigWrapper("CreateGUI"));
+        configWrappers.put("PreviewGUI", new ConfigWrapper("PreviewGUI"));
+        configWrappers.put("TopGUI", new ConfigWrapper("TopGUI"));
+        configWrappers.put("AddItemsGUI", new ConfigWrapper("AddItemsGUI"));
+        configWrappers.put("HuntersDen", new ConfigWrapper("HuntersDen"));
+        configWrappers.put("teamchecks", new ConfigWrapper("BountyTeamChecks"));
+        getLogger().info("Configuration files loaded successfully.");
+
+        // --------------------------------------
+        // Message Utility
+        // note: Initializes message formatting utility
+        // --------------------------------------
+        MessageUtils.initialize(this);
+        getLogger().info("MessageUtils initialized.");
+
+        // --------------------------------------
+        // Core Managers and Services
+        // note: Sets up essential managers and async executor
+        // --------------------------------------
+        debugManager = new DebugManager(this);
+        executorService = Executors.newFixedThreadPool(4); // Thread pool for async tasks
+        getLogger().info("DebugManager and ExecutorService initialized.");
+
+        // --------------------------------------
+        // MySQL Database
+        // note: Initializes MySQL connection and migrates data
+        // --------------------------------------
+        mySQL = new MySQL(this);
+        mySQL.initialize();
+        mySQL.migrateData();
+        mySQL.migrateStatsData();
+        getLogger().info("MySQL initialized and data migrated.");
+
+        // --------------------------------------
+        // Gameplay Managers
+        // note: Initializes managers for bounties, taxes, and special modes
+        // --------------------------------------
+        taxManager = new TaxManager(this);
+        itemValueCalculator = new ItemValueCalculator(this);
+        bountyManager = new BountyManager(this);
+        anonymousBounty = new AnonymousBounty(this);
+        frenzy = new Frenzy(this);
+        boostedBounty = new BoostedBounty(this);
+        tablistManager = new TablistManager(this);
+        if (tablistManager != null) {
+            getLogger().info("TablistManager initialized successfully.");
+        } else {
+            getLogger().severe("Failed to initialize TablistManager!");
+        }
+        getLogger().info("Gameplay managers initialized.");
+
+        // --------------------------------------
+        // Item Systems
+        // note: Initializes custom item functionalities
+        // --------------------------------------
+        uav = new UAV(this);
+        tracker = new Tracker(this);
+        jammer = new Jammer(this);
+        manualBoost = new ManualBoost(this);
+        manualFrenzy = new ManualFrenzy(this);
+        reverseBounty = new ReverseBounty(this);
+        decreaseTime = new DecreaseTime(this);
+        getLogger().info("Item systems initialized.");
+
+        // --------------------------------------
+        // Graphical User Interfaces (GUIs)
+        // note: Initializes all GUI components
+        // --------------------------------------
+        new TopGUI(this);
+        new BountyGUI(this);
+        new BountyCancel(this);
+        getLogger().info("GUIs initialized.");
+
+        // --------------------------------------
+        // Event Listeners
+        // note: Registers all event listeners for player and game events
+        // --------------------------------------
+        getServer().getPluginManager().registerEvents(new PlayerDeathListener(this), this);
+        getServer().getPluginManager().registerEvents(new BountyCreationChatListener(this), this);
+        getServer().getPluginManager().registerEvents(this, this); // BountiesPlus as listener
+        getLogger().info("Event listeners registered.");
+
+        // --------------------------------------
+        // Commands
+        // note: Sets up command executors and tab completers
+        // --------------------------------------
+        PluginCommand bountyCommand = getCommand("bounty");
+        if (bountyCommand != null) {
+            bountyCommand.setExecutor(new BountyCommand(this));
+            bountyCommand.setTabCompleter(new BountyTabCompleter());
+            getLogger().info("Bounty command registered.");
+        } else {
+            getLogger().severe("Failed to register bounty command!");
+        }
+
+        // --------------------------------------
+        // External Dependencies
+        // note: Integrates with PlaceholderAPI and Vault economy
+        // --------------------------------------
+        if (getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+            new Placeholders(this).register();
+            getLogger().info("PlaceholderAPI hooked successfully.");
+            // Optional: Use delayed registration if load order issues occur
+            // registerPlaceholdersWithDelay();
+        } else {
+            getLogger().warning("PlaceholderAPI not found; placeholders will not work.");
+        }
+
+        if (!setupEconomy()) {
+            getLogger().warning("No economy plugin found. Some features may not work.");
+        } else {
+            getLogger().info("Vault economy hooked successfully.");
+        }
+
+        // --------------------------------------
+        // Final Setup
+        // note: Reloads all configurations and ensures plugin is ready
+        // --------------------------------------
+        reloadEverything();
+        getLogger().info("BountiesPlus fully enabled!");
+    }
+
+    /**
+     * Saves the stats configuration
+     * // note: Persists StatStorage.yml to disk
+     */
+    public void saveStatsConfig() {
+        ConfigWrapper statsWrapper = configWrappers.get("stats");
+        if (statsWrapper != null) {
+            statsWrapper.save();
+        }
+    }
+
+    /**
+     * Reloads all configurations and data
+     * // note: Refreshes configs, MySQL, and all systems
      */
     public void reloadEverything() {
-        reloadConfig();
-        for (ConfigWrapper wrapper : configWrappers.values()) {
-            wrapper.reload();
-        }
-        loadBountyParticleConfig();
-        loadBountySoundConfig();
-        loadBountyGUITitle();
-        if (boostedBounty != null) {
-            boostedBounty.reload();
-        }
-        if (frenzy != null) {
-            frenzy.reload();
-        }
-        if (mySQL != null) {
-            mySQL.reconnect();
-        }
-        bountyManager.reload();
+        reloadAllConfigs(); // Reloads all configs via configWrappers
+        mySQL.initialize();
+        mySQL.migrateData();
+        mySQL.migrateStatsData();
+        if (frenzy != null) frenzy.reload();
+        if (boostedBounty != null) boostedBounty.reload();
+        getLogger().info("All configurations reloaded.");
     }
 
     /**
@@ -314,20 +349,18 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         for (ConfigWrapper wrapper : configWrappers.values()) {
             wrapper.reload();
         }
-        loadBountyParticleConfig();
         loadBountySoundConfig();
         loadBountyGUITitle();
     }
 
     /**
-     * Saves all plugin data
-     * // note: Persists all data files and MySQL records
+     * Saves all data to storage // note: Persists bounties, stats, and configurations
      */
     public void saveEverything() {
-        configWrappers.get("bounties").save();
-        configWrappers.get("stats").save();
-        configWrappers.get("BountyStorage").save();
-        configWrappers.get("StatStorage").save();
+        saveConfig();
+        for (ConfigWrapper wrapper : configWrappers.values()) {
+            wrapper.save();
+        }
     }
 
     /**
@@ -354,10 +387,11 @@ public class BountiesPlus extends JavaPlugin implements Listener {
 
     /**
      * Registers placeholders with PlaceholderAPI, with delayed retry for load order
+     * // note: Initializes PlaceholderAPI integration with retry mechanism
      */
     private void registerPlaceholdersWithDelay() {
         if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
-            Placeholders.registerPlaceholders();
+            new Placeholders(this).register();
             getLogger().info("PlaceholderAPI detected and placeholders registered");
         } else {
             getLogger().warning("PlaceholderAPI not found, scheduling delayed registration attempt");
@@ -368,7 +402,7 @@ public class BountiesPlus extends JavaPlugin implements Listener {
                 public void run() {
                     attempts++;
                     if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
-                        Placeholders.registerPlaceholders();
+                        new Placeholders(BountiesPlus.this).register();
                         getLogger().info("Delayed registration successful: PlaceholderAPI detected and placeholders registered after " + attempts + " attempt(s)");
                         cancel();
                     } else if (attempts >= maxAttempts) {
@@ -383,35 +417,43 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     }
 
     /**
-     * Cleans up resources on plugin disable
-     * // note: Saves data, cancels tasks, and cleans up managers
+     * Gets the executor service for asynchronous tasks
+     * // note: Returns the thread pool used for running async database operations
+     */
+    public ExecutorService getExecutorService() {
+        return executorService;
+    }
+
+    /**
+     * Called when the plugin is disabled
+     * // note: Saves data, cancels tasks, and closes connections
      */
     @Override
     public void onDisable() {
-        if (boostedBounty != null) {
-            boostedBounty.cleanup();
+        saveEverything();
+        if (frenzy != null) frenzy.cleanup();
+        if (boostedBounty != null) boostedBounty.cleanup();
+        if (uav != null) uav.cleanup();
+        if (tracker != null) tracker.cleanup();
+        if (jammer != null) jammer.cleanup();
+        if (manualBoost != null) manualBoost.cleanup();
+        if (manualFrenzy != null) manualFrenzy.cleanup();
+        if (reverseBounty != null) reverseBounty.cleanup();
+        if (decreaseTime != null) decreaseTime.cleanup();
+        if (mySQL != null) mySQL.closeConnection();
+        if (executorService != null) {
+            executorService.shutdown();
+            try {
+                if (!executorService.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                    executorService.shutdownNow();
+                    getLogger().warning("Some async tasks did not terminate gracefully.");
+                }
+            } catch (InterruptedException e) {
+                executorService.shutdownNow();
+                getLogger().severe("Interrupted while shutting down executor service: " + e.getMessage());
+            }
         }
-        if (bountyManager != null) {
-            bountyManager.cleanup();
-        }
-        if (frenzy != null) {
-            frenzy.cleanup();
-        }
-        if (anonymousBounty != null) {
-            anonymousBounty.cleanup();
-        }
-        if (tablistManager != null) {
-            tablistManager.cleanup();
-        }
-        if (debugManager != null) {
-            debugManager.stopDebugLoggingTask();
-        }
-        if (mySQL != null) {
-            mySQL.closeConnection();
-        }
-        stopParticleTask();
-        Placeholders.stopDebugLoggingTask();
-        getLogger().info("BountiesPlus disabled!");
+        if (debugManager != null) debugManager.stopDebugLoggingTask();
     }
 
     /**
@@ -423,27 +465,6 @@ public class BountiesPlus extends JavaPlugin implements Listener {
             getLogger().warning("Bounty skull configuration not found in config.yml! Using defaults.");
         } else {
             getLogger().info("Bounty skull configuration loaded successfully.");
-        }
-    }
-
-    /**
-     * Loads bounty particle configuration from config.yml
-     * // note: Sets up particle effects for bountied players
-     */
-    public void loadBountyParticleConfig() {
-        bountyParticleEnabled = getConfig().getBoolean("bounty-particle.enabled", true);
-        bloodParticleName = getConfig().getString("bounty-particle.blood-particle", "REDSTONE");
-        smokeParticleName = getConfig().getString("bounty-particle.smoke-particle", "REDSTONE");
-        bloodParticleCountLow = getConfig().getInt("bounty-particle.blood-particle-count-low", 15);
-        bloodParticleCountHigh = getConfig().getInt("bounty-particle.blood-particle-count-high", 10);
-        smokeParticleCountLow = getConfig().getInt("bounty-particle.smoke-particle-count-low", 15);
-        smokeParticleCountHigh = getConfig().getInt("bounty-particle.smoke-particle-count-high", 10);
-        particleInterval = getConfig().getInt("bounty-particle.particle-interval", 40);
-        displayRadius = getConfig().getInt("bounty-particle.display-radius", 30);
-
-        if (!VersionUtils.isPost19()) {
-            getLogger().info("Particles are not supported in this Minecraft version (" + VersionUtils.getVersionString() + "), disabling particle effects.");
-            bountyParticleEnabled = false;
         }
     }
 
@@ -465,81 +486,6 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     public void loadBountyGUITitle() {
         FileConfiguration config = getBountyGUIConfig();
         bountyGUITitle = ChatColor.translateAlternateColorCodes('&', config.getString("gui-title", "&dBounty Hunter"));
-    }
-
-    /**
-     * Checks if particle visibility is enabled for a player
-     * // note: Retrieves player-specific particle visibility setting
-     */
-    public boolean getParticleVisibility(Player player) {
-        String path = "particle-visibility." + player.getUniqueId().toString();
-        return getBountiesConfig().getBoolean(path, true);
-    }
-
-    /**
-     * Sets particle visibility for a player
-     * // note: Updates and saves player-specific particle visibility setting
-     */
-    public void setParticleVisibility(Player player, boolean enabled) {
-        String path = "particle-visibility." + player.getUniqueId().toString();
-        getBountiesConfig().set(path, enabled);
-        configWrappers.get("bounties").save();
-    }
-
-    /**
-     * Starts the particle task for bountied players
-     * // note: Schedules repeating task to display particles around players with bounties
-     */
-    private void startParticleTask() {
-        if (!bountyParticleEnabled) {
-            getLogger().info("Particle effects are disabled.");
-            return;
-        }
-
-        taskID = Bukkit.getScheduler().scheduleSyncRepeatingTask(this, () -> {
-            for (Player bountyTarget : Bukkit.getOnlinePlayers()) {
-                UUID targetUUID = bountyTarget.getUniqueId();
-                Map<UUID, Integer> bounties = bountyManager.getBountiesOnTarget(targetUUID);
-                if (!bounties.isEmpty()) {
-                    for (Player observer : Bukkit.getOnlinePlayers()) {
-                        boolean observerParticlesEnabled = getParticleVisibility(observer);
-                        if (!observerParticlesEnabled) {
-                            continue;
-                        }
-                        if (observer.getWorld().equals(bountyTarget.getWorld())) {
-                            try {
-                                double distance = observer.getLocation().distance(bountyTarget.getLocation());
-                                if (distance <= displayRadius) {
-                                    spawnParticles(bountyTarget, observer);
-                                }
-                            } catch (IllegalArgumentException ignored) {
-                            }
-                        }
-                    }
-                }
-            }
-        }, 0L, particleInterval);
-    }
-
-    /**
-     * Stops the particle task
-     * // note: Cancels the scheduled particle task
-     */
-    private void stopParticleTask() {
-        if (taskID != 0) {
-            Bukkit.getScheduler().cancelTask(taskID);
-        }
-    }
-
-    /**
-     * Spawns particles around a target player for an observer
-     * // note: Displays visual effects for bountied players
-     */
-    private void spawnParticles(Player target, Player observer) {
-        VersionUtils.spawnParticle(observer, bloodParticleName, target.getLocation().add(0, 1, 0), bloodParticleCountLow, 0.4, 0.4, 0.4, 0.02);
-        VersionUtils.spawnParticle(observer, bloodParticleName, target.getLocation().add(0, 1.5, 0), bloodParticleCountHigh, 0.3, 0.3, 0.3, 0.02);
-        VersionUtils.spawnParticle(observer, smokeParticleName, target.getLocation().add(0, 1, 0), smokeParticleCountLow, 0.5, 1.0, 0.5, 0);
-        VersionUtils.spawnParticle(observer, smokeParticleName, target.getLocation().add(0, 1.5, 0), smokeParticleCountHigh, 0.5, 1.0, 0.5, 0);
     }
 
     /**

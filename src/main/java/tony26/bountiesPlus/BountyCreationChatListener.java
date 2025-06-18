@@ -12,6 +12,7 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import tony26.bountiesPlus.utils.DebugManager;
 import tony26.bountiesPlus.utils.PlaceholderContext;
 import tony26.bountiesPlus.utils.Placeholders;
+import tony26.bountiesPlus.utils.TimeFormatter;
 
 
 /**
@@ -25,7 +26,7 @@ public class BountyCreationChatListener implements Listener {
     }
 
     /**
-     * Handles player chat input for bounty creation prompts // note: Processes chat input for various bounty creation steps
+     * Handles player chat input for bounty creation prompts // note: Processes chat input for various bounty creation steps, including money, experience, time, player name, and anonymous confirmation
      */
     @EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
@@ -76,8 +77,9 @@ public class BountyCreationChatListener implements Listener {
                             debugManager.logDebug("Invalid money amount entered by " + player.getName() + ": " + input);
                             return;
                         }
-                        // Check minimum bounty amount
+                        // Check minimum and maximum bounty amount
                         double minBountyAmount = plugin.getConfig().getDouble("min-bounty-amount", 100.0);
+                        double maxBountyAmount = plugin.getConfig().getDouble("max-bounty-amount", 1000000.0);
                         if (amount < minBountyAmount) {
                             final String errorMessage = messagesConfig.getString("invalid-money-amount", "&cAmount must be at least $%bountiesplus_min_amount%!");
                             final String retryMessage = messagesConfig.getString("enter-valid-money", "&aPlease enter a valid amount:");
@@ -85,6 +87,15 @@ public class BountyCreationChatListener implements Listener {
                             player.sendMessage(Placeholders.apply(errorMessage, minContext));
                             player.sendMessage(Placeholders.apply(retryMessage, context));
                             debugManager.logDebug("Money amount below minimum by " + player.getName() + ": " + amount);
+                            return;
+                        }
+                        if (amount > maxBountyAmount) {
+                            final String errorMessage = messagesConfig.getString("invalid-money-amount", "&cAmount cannot exceed $%bountiesplus_max_amount%!");
+                            final String retryMessage = messagesConfig.getString("enter-valid-money", "&aPlease enter a valid amount:");
+                            PlaceholderContext maxContext = context.withAmount(maxBountyAmount);
+                            player.sendMessage(Placeholders.apply(errorMessage, maxContext));
+                            player.sendMessage(Placeholders.apply(retryMessage, context));
+                            debugManager.logDebug("Money amount exceeds maximum by " + player.getName() + ": " + amount);
                             return;
                         }
                         // Check if player can afford the amount plus tax
@@ -149,6 +160,9 @@ public class BountyCreationChatListener implements Listener {
                         debugManager.logDebug("Time input cancelled by " + player.getName());
                         return;
                     }
+                    boolean requireTime = plugin.getConfig().getBoolean("time.require-time", false);
+                    int minBountyTime = plugin.getConfig().getInt("time.min-bounty-time", 3600);
+                    int maxBountyTime = plugin.getConfig().getInt("time.max-bounty-time", 86400);
                     try {
                         // Handle inputs like "30m", "2h", "1d", or "30 minutes"
                         String cleanedInput = input.replaceAll("\\s+", "").toLowerCase(); // Remove spaces and normalize
@@ -167,6 +181,35 @@ public class BountyCreationChatListener implements Listener {
                                 unit = amount == 0 ? "" : "minutes"; // Default to minutes, empty for 0 (permanent)
                             }
                             session.setDuration(amount, unit);
+                            if (requireTime && session.isPermanent()) {
+                                final String errorMessage = messagesConfig.getString("bounty-time-required", "&cA time duration is required for bounties!");
+                                final String retryMessage = messagesConfig.getString("set-bounty-duration", "&aType the duration (e.g., '30m', '2h', '1d'):");
+                                player.sendMessage(Placeholders.apply(errorMessage, context));
+                                player.sendMessage(Placeholders.apply(retryMessage, context));
+                                debugManager.logDebug("Time required but set to permanent by " + player.getName());
+                                return;
+                            }
+                            if (!session.isPermanent()) {
+                                int minutes = session.getTimeMinutes();
+                                if (minutes < minBountyTime) {
+                                    final String errorMessage = messagesConfig.getString("invalid-time-format", "&cTime must be at least %bountiesplus_min_time%!");
+                                    final String retryMessage = messagesConfig.getString("set-bounty-duration", "&aType the duration (e.g., '30m', '2h', '1d'):");
+                                    PlaceholderContext minContext = context.timeValue(TimeFormatter.formatMinutesToReadable(minBountyTime, false));
+                                    player.sendMessage(Placeholders.apply(errorMessage, minContext));
+                                    player.sendMessage(Placeholders.apply(retryMessage, context));
+                                    debugManager.logDebug("Time below minimum by " + player.getName() + ": " + minutes);
+                                    return;
+                                }
+                                if (minutes > maxBountyTime) {
+                                    final String errorMessage = messagesConfig.getString("invalid-time-format", "&cTime cannot exceed %bountiesplus_max_time%!");
+                                    final String retryMessage = messagesConfig.getString("set-bounty-duration", "&aType the duration (e.g., '30m', '2h', '1d'):");
+                                    PlaceholderContext maxContext = context.timeValue(TimeFormatter.formatMinutesToReadable(maxBountyTime, false));
+                                    player.sendMessage(Placeholders.apply(errorMessage, maxContext));
+                                    player.sendMessage(Placeholders.apply(retryMessage, context));
+                                    debugManager.logDebug("Time exceeds maximum by " + player.getName() + ": " + minutes);
+                                    return;
+                                }
+                            }
                             final String successMessage = messagesConfig.getString("time-set", "&aSet bounty duration to %bountiesplus_duration%.");
                             player.sendMessage(Placeholders.apply(successMessage, context));
                             session.returnToCreateGUI();
@@ -184,6 +227,35 @@ public class BountyCreationChatListener implements Listener {
                             }
                             String unit = parts.length > 1 ? parts[1] : "minutes";
                             session.setDuration(amount, unit);
+                            if (requireTime && session.isPermanent()) {
+                                final String errorMessage = messagesConfig.getString("bounty-time-required", "&cA time duration is required for bounties!");
+                                final String retryMessage = messagesConfig.getString("set-bounty-duration", "&aType the duration (e.g., '30m', '2h', '1d'):");
+                                player.sendMessage(Placeholders.apply(errorMessage, context));
+                                player.sendMessage(Placeholders.apply(retryMessage, context));
+                                debugManager.logDebug("Time required but set to permanent by " + player.getName());
+                                return;
+                            }
+                            if (!session.isPermanent()) {
+                                int minutes = session.getTimeMinutes();
+                                if (minutes < minBountyTime) {
+                                    final String errorMessage = messagesConfig.getString("invalid-time-format", "&cTime must be at least %bountiesplus_min_time%!");
+                                    final String retryMessage = messagesConfig.getString("set-bounty-duration", "&aType the duration (e.g., '30m', '2h', '1d'):");
+                                    PlaceholderContext minContext = context.timeValue(TimeFormatter.formatMinutesToReadable(minBountyTime, false));
+                                    player.sendMessage(Placeholders.apply(errorMessage, minContext));
+                                    player.sendMessage(Placeholders.apply(retryMessage, context));
+                                    debugManager.logDebug("Time below minimum by " + player.getName() + ": " + minutes);
+                                    return;
+                                }
+                                if (minutes > maxBountyTime) {
+                                    final String errorMessage = messagesConfig.getString("invalid-time-format", "&cTime cannot exceed %bountiesplus_max_time%!");
+                                    final String retryMessage = messagesConfig.getString("set-bounty-duration", "&aType the duration (e.g., '30m', '2h', '1d'):");
+                                    PlaceholderContext maxContext = context.timeValue(TimeFormatter.formatMinutesToReadable(maxBountyTime, false));
+                                    player.sendMessage(Placeholders.apply(errorMessage, maxContext));
+                                    player.sendMessage(Placeholders.apply(retryMessage, context));
+                                    debugManager.logDebug("Time exceeds maximum by " + player.getName() + ": " + minutes);
+                                    return;
+                                }
+                            }
                             final String successMessage = messagesConfig.getString("time-set", "&aSet bounty duration to %bountiesplus_duration%.");
                             player.sendMessage(Placeholders.apply(successMessage, context));
                             session.returnToCreateGUI();

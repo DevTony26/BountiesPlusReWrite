@@ -19,12 +19,14 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 import tony26.bountiesPlus.BountiesPlus;
 import tony26.bountiesPlus.SkullUtils;
+import tony26.bountiesPlus.utils.*;
 import tony26.bountiesPlus.utils.MessageUtils;
-import tony26.bountiesPlus.utils.PlaceholderContext;
-import tony26.bountiesPlus.utils.Placeholders;
-import tony26.bountiesPlus.utils.VersionUtils;
 
 import java.io.File;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -302,30 +304,53 @@ public class TopGUI implements Listener {
      * // note: Filters by stat type and sorts by value in specified order
      */
     private List<PlayerData> getFilteredPlayers(FilterType filterType, boolean sortHighToLow) {
-        FileConfiguration statsConfig = plugin.getStatsConfig();
         List<PlayerData> playerDataList = new ArrayList<>();
-        ConfigurationSection playersSection = statsConfig.getConfigurationSection("players");
-        if (playersSection == null) {
-            return playerDataList;
-        }
 
-        for (String uuidString : playersSection.getKeys(false)) {
-            try {
-                UUID uuid = UUID.fromString(uuidString);
-                OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(uuid);
-                if (offlinePlayer.getName() == null) continue;
-                int claimed = statsConfig.getInt("players." + uuidString + ".claimed", 0);
-                int survived = statsConfig.getInt("players." + uuidString + ".survived", 0);
-                double moneyEarned = statsConfig.getDouble("players." + uuidString + ".money_earned", 0.0);
-                int xpEarned = statsConfig.getInt("players." + uuidString + ".xp_earned", 0);
-                double totalValueEarned = statsConfig.getDouble("players." + uuidString + ".total_value_earned", 0.0);
-                playerDataList.add(new PlayerData(uuid, claimed, survived, moneyEarned, xpEarned, totalValueEarned));
-            } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("Invalid UUID in stats.yml: " + uuidString);
+        if (plugin.getMySQL().isEnabled()) {
+            try (Connection conn = plugin.getMySQL().getConnection();
+                 Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery("SELECT player_uuid, claimed, survived, money_earned, xp_earned, total_value_earned FROM player_stats")) {
+                while (rs.next()) {
+                    String uuidString = rs.getString("player_uuid");
+                    try {
+                        UUID uuid = UUID.fromString(uuidString);
+                        OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(uuid);
+                        if (offlinePlayer.getName() == null) continue;
+                        int claimed = rs.getInt("claimed");
+                        int survived = rs.getInt("survived");
+                        double moneyEarned = rs.getDouble("money_earned");
+                        int xpEarned = rs.getInt("xp_earned");
+                        double totalValueEarned = rs.getDouble("total_value_earned");
+                        playerDataList.add(new PlayerData(uuid, claimed, survived, moneyEarned, xpEarned, totalValueEarned));
+                    } catch (IllegalArgumentException e) {
+                        plugin.getLogger().warning("Invalid UUID in player_stats: " + uuidString);
+                    }
+                }
+            } catch (SQLException e) {
+                plugin.getLogger().warning("Failed to fetch stats from MySQL: " + e.getMessage());
+            }
+        } else {
+            FileConfiguration statsConfig = plugin.getStatsConfig();
+            ConfigurationSection playersSection = statsConfig.getConfigurationSection("players");
+            if (playersSection != null) {
+                for (String uuidString : playersSection.getKeys(false)) {
+                    try {
+                        UUID uuid = UUID.fromString(uuidString);
+                        OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(uuid);
+                        if (offlinePlayer.getName() == null) continue;
+                        int claimed = statsConfig.getInt("players." + uuidString + ".claimed", 0);
+                        int survived = statsConfig.getInt("players." + uuidString + ".survived", 0);
+                        double moneyEarned = statsConfig.getDouble("players." + uuidString + ".money_earned", 0.0);
+                        int xpEarned = statsConfig.getInt("players." + uuidString + ".xp_earned", 0);
+                        double totalValueEarned = statsConfig.getDouble("players." + uuidString + ".total_value_earned", 0.0);
+                        playerDataList.add(new PlayerData(uuid, claimed, survived, moneyEarned, xpEarned, totalValueEarned));
+                    } catch (IllegalArgumentException e) {
+                        plugin.getLogger().warning("Invalid UUID in stats.yml: " + uuidString);
+                    }
+                }
             }
         }
 
-        // Sort based on filter type and sort order
         Comparator<PlayerData> comparator;
         switch (filterType) {
             case CLAIMED:
@@ -353,7 +378,6 @@ public class TopGUI implements Listener {
                 };
         }
 
-        // Reverse for high-to-low, otherwise low-to-high
         if (sortHighToLow) {
             comparator = comparator.reversed();
         }
@@ -473,22 +497,31 @@ public class TopGUI implements Listener {
     }
 
     /**
-     * Handles clicks in the TopGUI
-     * // note: Prevents item movement and processes button actions, including filter cycling and sort toggling
+     * Handles clicks in the TopGUI // note: Prevents item movement and processes button actions, including filter cycling and sort toggling
      */
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player)) return;
         Player player = (Player) event.getWhoClicked();
         Inventory inventory = event.getInventory();
-        if (!openInventories.getOrDefault(player.getUniqueId(), null).equals(inventory)) return;
+        DebugManager debugManager = plugin.getDebugManager();
+
+        // Validate inventory
+        Inventory trackedInventory = openInventories.getOrDefault(player.getUniqueId(), null);
+        if (trackedInventory == null || !trackedInventory.equals(inventory)) {
+            debugManager.bufferDebug("Click ignored for " + player.getName() + ": not a TopGUI inventory");
+            return;
+        }
 
         event.setCancelled(true);
-        if (event.getCurrentItem() == null || event.getSlotType() == null) return;
+        ItemStack clickedItem = event.getCurrentItem();
+        if (clickedItem == null || event.getSlotType() == null) return;
 
         int slot = event.getRawSlot();
         UUID playerUUID = player.getUniqueId();
         int currentPage = openPages.getOrDefault(playerUUID, 0);
+
+        debugManager.bufferDebug("TopGUI click by " + player.getName() + " in slot " + slot);
 
         if (slot == 48 && inventory.getItem(48) != null) {
             // Previous Page
@@ -502,11 +535,11 @@ public class TopGUI implements Listener {
         } else if (slot == 5) {
             // Filter Button
             if (event.getClick() == ClickType.LEFT) {
-                // Cycle through filters
                 currentFilterType = FilterType.values()[(currentFilterType.ordinal() + 1) % FilterType.values().length];
+                debugManager.bufferDebug("Filter cycled to " + currentFilterType + " by " + player.getName());
             } else if (event.getClick() == ClickType.RIGHT) {
-                // Toggle sort order
                 sortHighToLow = !sortHighToLow;
+                debugManager.bufferDebug("Sort toggled to " + (sortHighToLow ? "High→Low" : "Low→High") + " by " + player.getName());
             }
             openTopGUI(player, 0, currentFilterType, sortHighToLow);
         }

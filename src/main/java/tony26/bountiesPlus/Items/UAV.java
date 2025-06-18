@@ -186,6 +186,10 @@ public class UAV implements Listener {
         player.sendMessage(ChatColor.translateAlternateColorCodes('&', uavStartMessage));
     }
 
+    /**
+     * Finds players with bounties within the search radius
+     * // note: Returns a list of valid bounty targets, respecting jammers
+     */
     private List<Player> findBountyTargets(Player scanner) {
         List<Player> targets = new ArrayList<>();
 
@@ -196,9 +200,15 @@ public class UAV implements Listener {
 
             if (!target.getWorld().equals(scanner.getWorld())) continue;
 
-            if (scanner.getLocation().distance(target.getLocation()) <= searchRadius) {
-                targets.add(target);
+            if (scanner.getLocation().distance(target.getLocation()) > searchRadius) continue;
+
+            // Check if target has an active jammer
+            if (plugin.getJammer() != null && plugin.getJammer().isBlocked(target)) {
+                scanner.sendMessage(ChatColor.translateAlternateColorCodes('&', plugin.getJammer().getJammerBlockedMessage()));
+                continue;
             }
+
+            targets.add(target);
         }
 
         return targets;
