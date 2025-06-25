@@ -14,24 +14,30 @@ mysql:
 #####################################################################################
 custom-placeholders:
   bounty-target-fallback: "None"
-  bounty-status-no-expiration: "No expiration"
+  bounty-status-no-expiration: "&f&K||| &4Death Contract &f&K|||"
+  anonymous-sponsor: "&k|||||||"
 #####################################################################################
 # Debug / General Bounty Settings
 #####################################################################################
-debug-enabled: false
+debug-enabled: true
 restrict-same-ip-bounties: false
+require-skull-turn-in: true
+allow-offline-players: true
+use-xp-levels: false
+money:
+  allow-zero-dollar-bounties: true
+  min-bounty-amount: 100
+  max-bounty-amount: 1000000
 time:
   allow-time: true
   require-time: false
   default-bounty-duration: 1440
   min-bounty-time: 3600
   max-bounty-time: 86400
-enable-shop: true
-allow-expired-skulls: true
-allow-offline-players: true
-require-skull-turn-in: true
-min-bounty-amount: 100
-max-bounty-amount: 1000000
+shop:
+  enable-shop: true
+  allow-expired-skulls: true
+  use-shop-gui-plus: false
 #####################################################################################
 # Anonymous Bounties Settings
 #####################################################################################
@@ -51,10 +57,12 @@ tax-total-value: false
 #####################################################################################
 tablist-modification:
   enabled: true
-  format: "&c[Bounty] %bountiesplus_player_name%"
-###################################################################################
+  format: "&4[ &a%bountiesplus_total_pool% &a&o(&a&o+ %bountiesplus_pool_increase_percent% %&a&o) &4] %player_name%"
+  move-boosted-to-top: true
+  boosted-format: "&6[Boosted %bountiesplus_boost%x] &a%bountiesplus_total_pool% &6] %player_name%"
+#####################################################################################
 # Blacklist Items from being added to a bounty (Supports NBT tags for Custom Items
-###################################################################################
+#####################################################################################
 blacklisted-items:
   - "DIAMOND_SWORD"
   - "NETHERITE_AXE"
@@ -63,9 +71,9 @@ blacklisted-nbt-items:
     nbt_value: "tracker"
   - nbt_key: "item_type"
     nbt_value: "uav"
-###################################################################################
+#####################################################################################
 # Customize Skull that drops when a player with bounty is killed
-###################################################################################
+#####################################################################################
 bounty-skull:
   name: "&c&l☠ &4Bounty Head of %target% &c&l☠"
   lore:
@@ -79,9 +87,9 @@ bounty-skull:
     - "&eRight-click to turn in for rewards!"
     - "&cWarning: Head will expire in 24 hours"
   enchantment-glow: true
-###################################################################################
+#####################################################################################
 # Boosted Bounties Settings
-###################################################################################
+#####################################################################################
 boosted-bounties:
   enabled: true
   boost-interval: 120
@@ -96,23 +104,23 @@ boosted-bounties:
     enabled: true
     display-before-boost: 3
     message: "&6Next Boosted Bounty in %time%"
-###################################################################################
+#####################################################################################
 # Frenzy Mode Settings
-###################################################################################
+#####################################################################################
 frenzy:
   enabled: true
-  frenzy-interval: 180  # Time between frenzy events in minutes
+  frenzy-interval: 180
   multiplier-chances:
-    "2.0": 50.0  # 50% chance for 2x multiplier
-    "3.0": 30.0  # 30% chance for 3x multiplier
-    "5.0": 20.0  # 20% chance for 5x multiplier
+    "2.0": 50.0
+    "3.0": 30.0
+    "5.0": 20.0
   bossbar:
     enabled: true
-    display-before-frenzy: 5  # Seconds to display boss bar before frenzy starts
-    message: "&cFrenzy Mode Starting in %time%"  # Boss bar message with time placeholder
-###################################################################################
+    display-before-frenzy: 5
+    message: "&cFrenzy Mode Starting in %time%"
+#####################################################################################
 # Sound Settings
-###################################################################################
+#####################################################################################
 bounty-sound:
   enabled: true
   sound: "ENTITY_BLAZE_SHOOT"

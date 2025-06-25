@@ -8,12 +8,13 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerChatEvent;
+import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.block.Action;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import tony26.bountiesPlus.BountiesPlus;
+import tony26.bountiesPlus.utils.EventManager;
 import tony26.bountiesPlus.utils.VersionUtils;
 
 import java.util.*;
@@ -44,10 +45,14 @@ public class ManualBoost implements Listener {
     private String serverBroadcastMessage;
     private String cancelCommand;
 
-    public ManualBoost(BountiesPlus plugin) {
+    /**
+     * Initializes the ManualBoost system
+     * // note: Sets up configuration and registers listener
+     */
+    public ManualBoost(BountiesPlus plugin, EventManager eventManager) {
         this.plugin = plugin;
         loadConfiguration();
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        eventManager.register(this);
     }
 
     private void loadConfiguration() {
@@ -152,8 +157,12 @@ public class ManualBoost implements Listener {
         player.sendMessage(ChatColor.translateAlternateColorCodes('&', promptMessage));
     }
 
+    /**
+     * Handles player chat input for manual boost target selection
+     * // note: Processes player name input or cancel command for boosting a player's bounty
+     */
     @EventHandler
-    public void onPlayerChat(PlayerChatEvent event) {
+    public void onPlayerChat(AsyncPlayerChatEvent event) {
         Player player = event.getPlayer();
         UUID playerUUID = player.getUniqueId();
 
@@ -166,83 +175,85 @@ public class ManualBoost implements Listener {
 
         String message = event.getMessage().trim();
 
-        // Check for cancel command
-        if (message.equalsIgnoreCase(cancelCommand)) {
-            // Return the item to player
-            player.getInventory().addItem(createManualBoostItem());
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', cancelMessage));
-            return;
-        }
+        // Run inventory and bounty operations on the main thread
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            // Check for cancel command
+            if (message.equalsIgnoreCase(cancelCommand)) {
+                // Return the item to player
+                plugin.returnItemToPlayer(player, createManualBoostItem());
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', cancelMessage));
+                return;
+            }
 
-        // Find the target player
-        Player targetPlayer = Bukkit.getPlayer(message);
-        if (targetPlayer == null) {
-            // Try exact name match with offline players
-            for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
-                if (onlinePlayer.getName().equalsIgnoreCase(message)) {
-                    targetPlayer = onlinePlayer;
-                    break;
+            // Find the target player
+            Player targetPlayer = Bukkit.getPlayer(message);
+            if (targetPlayer == null) {
+                // Try exact name match with online players
+                for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+                    if (onlinePlayer.getName().equalsIgnoreCase(message)) {
+                        targetPlayer = onlinePlayer;
+                        break;
+                    }
                 }
             }
-        }
 
-        if (targetPlayer == null) {
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', playerNotFoundMessage));
-            // Return the item
-            player.getInventory().addItem(createManualBoostItem());
-            return;
-        }
-
-        if (!targetPlayer.isOnline()) {
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', playerOfflineMessage));
-            // Return the item
-            player.getInventory().addItem(createManualBoostItem());
-            return;
-        }
-
-        // Check if target already has an active manual boost
-        if (plugin.getBountyManager().hasActiveManualBoost(targetPlayer.getUniqueId())) {
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', alreadyBoostedMessage));
-            // Return the item
-            player.getInventory().addItem(createManualBoostItem());
-            return;
-        }
-
-        // Determine if the boost should fail
-        boolean shouldFail = shouldFail();
-
-        if (shouldFail) {
-            // Boost failed - just send failure message
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', failureMessage));
-        } else {
-            // Success - apply the boost
-            // Generate random multiplier and time within ranges
-            double multiplier = getRandomMultiplier();
-            int timeMinutes = getRandomTimeMinutes();
-
-            // Apply the manual boost (assuming both money and XP boost)
-            plugin.getBountyManager().applyManualBoost(targetPlayer.getUniqueId(), multiplier, "both", timeMinutes);
-
-            // Send success message to user
-            String successMsg = successMessage
-                    .replace("%target%", targetPlayer.getName())
-                    .replace("%multiplier%", String.format("%.1f", multiplier))
-                    .replace("%time%", String.valueOf(timeMinutes));
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', successMsg));
-
-            // Broadcast server message if configured
-            if (serverBroadcastMessage != null && !serverBroadcastMessage.isEmpty()) {
-                String broadcast = serverBroadcastMessage
-                        .replace("%player%", player.getName())
-                        .replace("%target%", targetPlayer.getName());
-                Bukkit.broadcastMessage(ChatColor.translateAlternateColorCodes('&', broadcast));
+            if (targetPlayer == null) {
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', playerNotFoundMessage));
+                // Return the item
+                plugin.returnItemToPlayer(player, createManualBoostItem());
+                return;
             }
 
-            // Optional: Send notification to target player
-            String targetNotification = "&aYou have received a manual boost! Your bounty rewards are now boosted by &e"
-                    + String.format("%.1f", multiplier) + "x&a for &e" + timeMinutes + "&a minutes!";
-            targetPlayer.sendMessage(ChatColor.translateAlternateColorCodes('&', targetNotification));
-        }
+            if (!targetPlayer.isOnline()) {
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', playerOfflineMessage));
+                // Return the item
+                plugin.returnItemToPlayer(player, createManualBoostItem());
+                return;
+            }
+
+            // Check if target already has an active manual boost
+            if (plugin.getBountyManager().hasActiveManualBoost(targetPlayer.getUniqueId())) {
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', alreadyBoostedMessage));
+                // Return the item
+                plugin.returnItemToPlayer(player, createManualBoostItem());
+                return;
+            }
+
+            // Determine if the boost should fail
+            boolean shouldFail = shouldFail();
+
+            if (shouldFail) {
+                // Boost failed - send failure message
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', failureMessage));
+            } else {
+                // Success - apply the boost
+                double multiplier = getRandomMultiplier();
+                int timeMinutes = getRandomTimeMinutes();
+
+                // Apply the manual boost
+                plugin.getBountyManager().applyManualBoost(targetPlayer.getUniqueId(), multiplier, "both", timeMinutes);
+
+                // Send success message to user
+                String successMsg = successMessage
+                        .replace("%target%", targetPlayer.getName())
+                        .replace("%multiplier%", String.format("%.1f", multiplier))
+                        .replace("%time%", String.valueOf(timeMinutes));
+                player.sendMessage(ChatColor.translateAlternateColorCodes('&', successMsg));
+
+                // Broadcast server message if configured
+                if (serverBroadcastMessage != null && !serverBroadcastMessage.isEmpty()) {
+                    String broadcast = serverBroadcastMessage
+                            .replace("%player%", player.getName())
+                            .replace("%target%", targetPlayer.getName());
+                    Bukkit.broadcastMessage(ChatColor.translateAlternateColorCodes('&', broadcast));
+                }
+
+                // Send notification to target player
+                String targetNotification = "&aYou have received a manual boost! Your bounty rewards are now boosted by &e"
+                        + String.format("%.1f", multiplier) + "x&a for &e" + timeMinutes + "&a minutes!";
+                targetPlayer.sendMessage(ChatColor.translateAlternateColorCodes('&', targetNotification));
+            }
+        });
     }
 
     /**

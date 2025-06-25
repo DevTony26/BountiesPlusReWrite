@@ -13,6 +13,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import tony26.bountiesPlus.BountiesPlus;
+import tony26.bountiesPlus.utils.EventManager;
 import tony26.bountiesPlus.utils.VersionUtils;
 
 import java.util.*;
@@ -36,10 +37,14 @@ public class ManualFrenzy implements Listener {
     private String alreadyActiveMessage;
     private String serverBroadcastMessage;
 
-    public ManualFrenzy(BountiesPlus plugin) {
+    /**
+     * Initializes the ManualFrenzy system
+     * // note: Sets up configuration and registers listener
+     */
+    public ManualFrenzy(BountiesPlus plugin, EventManager eventManager) {
         this.plugin = plugin;
         loadConfiguration();
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        eventManager.register(this);
     }
 
     private void loadConfiguration() {

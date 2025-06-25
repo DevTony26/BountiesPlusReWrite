@@ -39,13 +39,21 @@ public class Frenzy {
     private long lastFrenzyTime = 0;
     private long lastFrenzyStartTime = 0;
 
-    public Frenzy(BountiesPlus plugin) {
+    /**
+     * Constructs the Frenzy manager
+     * // note: Initializes frenzy mode and starts the frenzy cycle
+     */
+    public Frenzy(BountiesPlus plugin, List<String> warnings) {
         this.plugin = plugin;
-        loadConfig();
+        loadConfig(warnings);
         startFrenzyCycle();
     }
 
-    private void loadConfig() {
+    /**
+     * Loads frenzy configuration from config.yml
+     * // note: Initializes frenzy settings and collects warnings for missing or invalid configurations
+     */
+    private void loadConfig(List<String> warnings) {
         FileConfiguration config = plugin.getConfig();
         frenzyInterval = Math.max(1, config.getInt("frenzy-mode.frenzy-interval", 300)); // 5 minutes default
         frenzyDuration = Math.max(1, config.getInt("frenzy-mode.frenzy-duration", 60)); // 1 minute default
@@ -53,7 +61,7 @@ public class Frenzy {
 
         ConfigurationSection multiplierSection = config.getConfigurationSection("frenzy-mode.multiplier-chances");
         if (multiplierSection == null) {
-            plugin.getLogger().warning("Frenzy multiplier chances not found, using default: 2x (50%), 3x (30%), 5x (20%)");
+            warnings.add("Frenzy multiplier chances not found, using default: 2x (50%), 3x (30%), 5x (20%)");
             multiplierChances.put(2.0, 50.0);
             multiplierChances.put(3.0, 30.0);
             multiplierChances.put(5.0, 20.0);
@@ -63,12 +71,12 @@ public class Frenzy {
                     double multiplier = Double.parseDouble(key);
                     double chance = multiplierSection.getDouble(key);
                     if (chance < 0 || multiplier <= 1) {
-                        plugin.getLogger().warning("Invalid frenzy multiplier or chance: " + key);
+                        warnings.add("Invalid frenzy multiplier or chance: " + key);
                         continue;
                     }
                     multiplierChances.put(multiplier, chance);
                 } catch (NumberFormatException e) {
-                    plugin.getLogger().warning("Invalid frenzy multiplier format: " + key);
+                    warnings.add("Invalid frenzy multiplier format: " + key);
                 }
             }
         }
@@ -82,7 +90,7 @@ public class Frenzy {
 
         // Check if boss bars are available in this version
         if (bossbarEnabled && !VersionUtils.isPost19()) {
-            plugin.getLogger().info("Boss bars are not supported in this Minecraft version (" + VersionUtils.getVersionString() + "), disabling frenzy boss bar feature.");
+            warnings.add("Boss bars not supported in Minecraft " + VersionUtils.getVersionString() + ", disabling frenzy boss bar feature.");
             bossbarEnabled = false;
         }
     }
@@ -155,8 +163,8 @@ public class Frenzy {
      * Reloads frenzy mode configuration
      * // note: Updates settings from config.yml
      */
-    public void reload() {
-        loadConfig();
+    public void reload(List<String> warnings) {
+        loadConfig(warnings);
     }
 
     private void activateFrenzy() {

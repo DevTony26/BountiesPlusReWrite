@@ -147,92 +147,43 @@ public class VersionUtils {
 
     /**
      * Creates a version-safe ItemStack using XMaterial for cross-version compatibility
+     * // note: Resolves material names to ItemStacks, ensuring correct materials for the server version
      */
     public static ItemStack getXMaterialItemStack(String materialName, int amount) {
-        BountiesPlus plugin = BountiesPlus.getInstance();
-        plugin.getLogger().info("Resolving material: " + materialName + ", isLegacy=" + isLegacy());
+        DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
+        debugManager.bufferDebug("Resolving material: " + materialName + ", isLegacy=" + isLegacy());
         ItemStack item;
-        if (materialName.equalsIgnoreCase("PLAYER_HEAD") && !isLegacy()) {
-            // Log runtime API version
-            plugin.getLogger().info("Bukkit API version: " + Bukkit.getVersion() + ", BukkitVersion: " + Bukkit.getBukkitVersion());
-            // Attempt 1: Material.getMaterial("PLAYER_HEAD")
+
+        if (!isLegacy()) {
+            // Modern versions (1.13+): Use direct Material lookup for reliability
             try {
-                Material playerHeadMaterial = Material.getMaterial("PLAYER_HEAD");
-                if (playerHeadMaterial != null) {
-                    item = new ItemStack(playerHeadMaterial, amount);
-                    plugin.getLogger().info("Created ItemStack via Material.getMaterial(PLAYER_HEAD): " + item.getType().name() + ", amount: " + amount);
-                    if (item.getType().name().equals("PLAYER_HEAD")) {
-                        return item;
-                    }
-                    plugin.getLogger().warning("Material.getMaterial(PLAYER_HEAD) created incorrect ItemStack material: expected PLAYER_HEAD, got " + item.getType().name());
-                } else {
-                    plugin.getLogger().warning("Material.getMaterial(PLAYER_HEAD) returned null");
-                }
-            } catch (Exception e) {
-                plugin.getLogger().warning("Failed to create PLAYER_HEAD via Material.getMaterial(PLAYER_HEAD): " + e.getMessage() + ", trying reflection");
-            }
-            // Attempt 2: Reflection to access Material.PLAYER_HEAD
-            try {
-                Material playerHeadMaterial = (Material) Material.class.getField("PLAYER_HEAD").get(null);
-                plugin.getLogger().info("Reflection found Material: " + playerHeadMaterial.name());
-                item = new ItemStack(playerHeadMaterial, amount);
-                plugin.getLogger().info("Created ItemStack with material: " + item.getType().name() + ", amount: " + amount);
-                if (item.getType().name().equals("PLAYER_HEAD")) {
-                    return item;
-                }
-                plugin.getLogger().warning("Reflection created incorrect ItemStack material: expected PLAYER_HEAD, got " + item.getType().name());
-            } catch (NoSuchFieldException | IllegalAccessException e) {
-                plugin.getLogger().warning("Failed to access PLAYER_HEAD via reflection: " + e.getMessage() + ", trying Material.valueOf");
-            }
-            // Attempt 3: Direct enum access via Material.valueOf
-            try {
-                Material playerHeadMaterial = Material.valueOf("PLAYER_HEAD");
-                item = new ItemStack(playerHeadMaterial, amount);
-                plugin.getLogger().info("Created ItemStack via Material.valueOf: " + item.getType().name() + ", amount: " + amount);
-                if (item.getType().name().equals("PLAYER_HEAD")) {
-                    return item;
-                }
-                plugin.getLogger().warning("Material.valueOf created incorrect ItemStack material: expected PLAYER_HEAD, got " + item.getType().name());
+                Material material = Material.valueOf(materialName.toUpperCase());
+                item = new ItemStack(material, amount);
+                debugManager.bufferDebug("Created ItemStack via Material.valueOf(" + materialName + "): " + item.getType().name() + ", amount: " + amount);
+                return item;
             } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("Failed to create PLAYER_HEAD via Material.valueOf: " + e.getMessage() + ", falling back to XMaterial");
+                debugManager.logWarning("Material.valueOf failed for '" + materialName + "': " + e.getMessage() + ", trying XMaterial fallback");
             }
-            // Attempt 4: XMaterial fallback (last resort for modern versions)
-            XMaterial xMaterial = XMaterial.matchXMaterial("PLAYER_HEAD").orElse(XMaterial.STONE);
-            item = xMaterial.parseItem();
-            if (item == null) {
-                plugin.getLogger().warning("XMaterial failed to create PLAYER_HEAD, using STONE");
-                item = new ItemStack(Material.STONE, amount);
-            } else {
-                item.setAmount(amount);
-                plugin.getLogger().info("XMaterial created ItemStack with material: " + item.getType().name() + ", amount: " + amount);
-            }
+        }
+
+        // Legacy or fallback: Use XMaterial for compatibility
+        XMaterial xMaterial = XMaterial.matchXMaterial(materialName.toUpperCase()).orElse(XMaterial.STONE);
+        item = xMaterial.parseItem();
+        if (item == null) {
+            debugManager.logWarning("XMaterial failed to create item for '" + materialName + "', using STONE");
+            item = new ItemStack(Material.STONE, amount);
         } else {
-            XMaterial xMaterial = XMaterial.matchXMaterial(materialName.toUpperCase()).orElse(XMaterial.STONE);
-            item = xMaterial.parseItem();
-            if (item == null) {
-                plugin.getLogger().warning("XMaterial failed to create item for '" + materialName + "', using STONE");
-                item = new ItemStack(Material.STONE, amount);
-            } else {
-                item.setAmount(amount);
-            }
+            item.setAmount(amount);
             if (isLegacy() && materialName.equalsIgnoreCase("PLAYER_HEAD")) {
-                item.setType(Material.SKULL_ITEM);
+                item.setType(Material.valueOf("SKULL_ITEM"));
                 item.setDurability((short) 3);
-                plugin.getLogger().info("Forced PLAYER_HEAD to SKULL_ITEM:3 for legacy version");
+                debugManager.bufferDebug("Forced PLAYER_HEAD to SKULL_ITEM:3 for legacy version");
             } else if (isLegacy() && xMaterial.getData() != 0) {
                 item.setDurability(xMaterial.getData());
             }
         }
-        String debugInfo = "Resolved material for " + materialName + ": " + item.getType().name();
-        if (isLegacy()) {
-            debugInfo += ":" + item.getDurability();
-            if (materialName.equalsIgnoreCase("PLAYER_HEAD") && (item.getType() != Material.SKULL_ITEM || item.getDurability() != 3)) {
-                plugin.getLogger().warning("Incorrect skull material for PLAYER_HEAD in legacy mode: expected SKULL_ITEM:3, got " + item.getType().name() + ":" + item.getDurability());
-            }
-        } else if (materialName.equalsIgnoreCase("PLAYER_HEAD") && !item.getType().name().equals("PLAYER_HEAD")) {
-            plugin.getLogger().warning("Incorrect skull material for PLAYER_HEAD in modern mode: expected PLAYER_HEAD, got " + item.getType().name());
-        }
-        plugin.getLogger().info(debugInfo);
+
+        debugManager.bufferDebug("Resolved material for " + materialName + ": " + item.getType().name() + (isLegacy() ? ":" + item.getDurability() : ""));
         return item;
     }
 
@@ -248,12 +199,55 @@ public class VersionUtils {
             return typeName.endsWith("_STAINED_GLASS_PANE") || typeName.equals("GLASS_PANE");
         }
     }
+// file: java/tony26/bountiesPlus/utils/VersionUtils.java
 
     /**
-     * Creates a version-safe ItemStack with amount of 1
+     * Retrieves an ItemStack for the specified material name
+     * // note: Creates an item stack with version-safe material handling
      */
     public static ItemStack getXMaterialItemStack(String materialName) {
-        return getXMaterialItemStack(materialName, 1); // Calls main method with amount 1
+        DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
+        int amount = 1;
+
+        if (materialName == null || materialName.isEmpty()) {
+            debugManager.logWarning("[VersionUtils] Material name is null or empty, returning STONE");
+            return new ItemStack(Material.STONE, amount);
+        }
+
+        debugManager.bufferDebug("Resolving material: " + materialName + ", isLegacy=" + isLegacy());
+        ItemStack item;
+
+        if (!isLegacy()) {
+            // Modern versions (1.13+): Use direct Material lookup for reliability
+            try {
+                Material material = Material.valueOf(materialName.toUpperCase());
+                item = new ItemStack(material, amount);
+                debugManager.bufferDebug("Created ItemStack via Material.valueOf(" + materialName + "): " + item.getType().name() + ", amount: " + amount);
+                return item;
+            } catch (IllegalArgumentException e) {
+                debugManager.logWarning("[VersionUtils] Material.valueOf failed for '" + materialName + "': " + e.getMessage() + ", trying XMaterial fallback");
+            }
+        }
+
+        // Legacy or fallback: Use XMaterial for compatibility
+        XMaterial xMaterial = XMaterial.matchXMaterial(materialName.toUpperCase()).orElse(XMaterial.STONE);
+        item = xMaterial.parseItem();
+        if (item == null) {
+            debugManager.logWarning("[VersionUtils] XMaterial failed to create item for '" + materialName + "', using STONE");
+            item = new ItemStack(Material.STONE, amount);
+        } else {
+            item.setAmount(amount);
+            if (isLegacy() && materialName.equalsIgnoreCase("PLAYER_HEAD")) {
+                item.setType(Material.valueOf("SKULL_ITEM"));
+                item.setDurability((short) 3);
+                debugManager.bufferDebug("Forced PLAYER_HEAD to SKULL_ITEM:3 for legacy version");
+            } else if (isLegacy() && xMaterial.getData() != 0) {
+                item.setDurability(xMaterial.getData());
+            }
+        }
+
+        debugManager.bufferDebug("Resolved material for " + materialName + ": " + item.getType().name() + (isLegacy() ? ":" + item.getDurability() : ""));
+        return item;
     }
 
     /**
@@ -510,28 +504,40 @@ public class VersionUtils {
         return XMaterial.PLAYER_HEAD.isSimilar(item); // Checks if item is player head
     }
 
+// file: java/tony26/bountiesPlus/utils/VersionUtils.java
+
     /**
      * Safely gets a material by name with multiple fallbacks
      */
     public static Material getMaterialSafely(String primaryName, String fallbackName) {
-        // Try XMaterial first for modern and legacy compatibility // Prioritizes XMaterial
-        XMaterial xMaterial = XMaterial.matchXMaterial(primaryName.toUpperCase()).orElse(null); // Attempts XMaterial lookup
+        DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
+        debugManager.bufferDebug("Attempting to resolve material: primary=" + primaryName + ", fallback=" + fallbackName + ", isLegacy=" + isLegacy());
+
+        // Try XMaterial first for modern and legacy compatibility
+        XMaterial xMaterial = XMaterial.matchXMaterial(primaryName.toUpperCase()).orElse(null);
         if (xMaterial != null) {
-            Material material = xMaterial.parseMaterial(); // Parses material
+            Material material = xMaterial.parseMaterial();
             if (material != null) {
-                return material; // Returns valid material
+                debugManager.bufferDebug("Resolved material via XMaterial: " + primaryName + " -> " + material.name());
+                return material;
             }
+            debugManager.logWarning("[VersionUtils] XMaterial parsed null for '" + primaryName + "', trying direct lookup");
         }
-        // Fall back to direct lookup // Uses Bukkit API as secondary check
+
+        // Fall back to direct lookup
         try {
-            return Material.valueOf(primaryName); // Attempts direct material lookup
+            Material material = Material.valueOf(primaryName.toUpperCase());
+            debugManager.bufferDebug("Resolved material via Material.valueOf: " + primaryName + " -> " + material.name());
+            return material;
         } catch (IllegalArgumentException e) {
-            BountiesPlus.getInstance().getLogger().warning("Material '" + primaryName + "' not found, trying fallback: " + fallbackName); // Logs warning
+            debugManager.logWarning("[VersionUtils] Material '" + primaryName + "' not found, trying fallback: " + fallbackName);
             try {
-                return Material.valueOf(fallbackName); // Attempts fallback material
+                Material material = Material.valueOf(fallbackName.toUpperCase());
+                debugManager.bufferDebug("Resolved fallback material: " + fallbackName + " -> " + material.name());
+                return material;
             } catch (IllegalArgumentException e2) {
-                BountiesPlus.getInstance().getLogger().warning("Fallback material '" + fallbackName + "' not found, using STONE"); // Logs final fallback
-                return Material.STONE; // Returns STONE as last resort
+                debugManager.logWarning("[VersionUtils] Fallback material '" + fallbackName + "' not found, using STONE");
+                return Material.STONE;
             }
         }
     }
@@ -581,30 +587,31 @@ public class VersionUtils {
 
     /**
      * Sends a title to a player in a version-safe way
+     * // note: Displays a title and subtitle with formatted messages
      */
     public static void sendTitle(Player player, String title, String subtitle, int fadeIn, int stay, int fadeOut) {
         if (isPost111()) {
             try {
-                Method sendTitleMethod = player.getClass().getMethod("sendTitle", String.class, String.class, int.class, int.class, int.class); // Attempts modern title method
-                sendTitleMethod.invoke(player, title, subtitle, fadeIn, stay, fadeOut); // Sends title
+                Method sendTitleMethod = player.getClass().getMethod("sendTitle", String.class, String.class, int.class, int.class, int.class);
+                sendTitleMethod.invoke(player, title, subtitle, fadeIn, stay, fadeOut);
             } catch (Exception e) {
                 try {
-                    player.sendTitle(title, subtitle); // Falls back to simpler method
+                    player.sendTitle(title, subtitle);
                 } catch (Exception e2) {
                     if (title != null && !title.isEmpty()) {
-                        player.sendMessage(title); // Sends title as message
+                        MessageUtils.sendFormattedMessage(player, title);
                     }
                     if (subtitle != null && !subtitle.isEmpty()) {
-                        player.sendMessage(subtitle); // Sends subtitle as message
+                        MessageUtils.sendFormattedMessage(player, subtitle);
                     }
                 }
             }
         } else {
             if (title != null && !title.isEmpty()) {
-                player.sendMessage(title); // Sends title as message for legacy
+                MessageUtils.sendFormattedMessage(player, title);
             }
             if (subtitle != null && !subtitle.isEmpty()) {
-                player.sendMessage(subtitle); // Sends subtitle as message
+                MessageUtils.sendFormattedMessage(player, subtitle);
             }
         }
     }

@@ -2,5 +2,6 @@
 <project version="4">
   <component name="CopyFileContentSettings">
     <option name="fileCountLimit" value="80" />
+    <option name="preText" value="Use existing methods / variables from the project. dont create new methods or variables unless you have to. tell me if i need to add any fields. Send each method in an individual file.&#10;```plaintext" />
   </component>
 </project>

@@ -1,8 +1,0 @@
-# Player statistics for BountiesPlus
-players:
-# Example entry (will be populated dynamically)
-# <player-uuid>:
-#   claimed: 0
-#   survived: 0
-#   money_earned: 0.0
-#   reputation: 0

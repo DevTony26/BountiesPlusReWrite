@@ -8,7 +8,6 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 import tony26.bountiesPlus.BountiesPlus;
-import tony26.bountiesPlus.SkullUtils;
 import tony26.bountiesPlus.utils.VersionUtils;
 
 import java.lang.reflect.Field;

@@ -3,6 +3,7 @@ version: 1.0
 main: tony26.bountiesPlus.BountiesPlus
 api-version: 1.21
 depend: [Vault, PlaceholderAPI]
+softdepend: [ShopGUIPlus, ProtocolLib]
 commands:
   bounty:
     description: Manage bounties on players

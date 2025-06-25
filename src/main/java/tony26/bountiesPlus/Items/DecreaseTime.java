@@ -13,6 +13,7 @@ import org.bukkit.event.block.Action;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import tony26.bountiesPlus.BountiesPlus;
+import tony26.bountiesPlus.utils.EventManager;
 import tony26.bountiesPlus.utils.VersionUtils;
 
 import java.util.*;
@@ -37,10 +38,14 @@ public class DecreaseTime implements Listener {
     private boolean failureAddsTime;
     private double failureIncreasePercent;
 
-    public DecreaseTime(BountiesPlus plugin) {
+    /**
+     * Initializes the DecreaseTime system
+     * // note: Sets up configuration and registers listener
+     */
+    public DecreaseTime(BountiesPlus plugin, EventManager eventManager) {
         this.plugin = plugin;
         loadConfiguration();
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        eventManager.register(this);
     }
 
     private void loadConfiguration() {

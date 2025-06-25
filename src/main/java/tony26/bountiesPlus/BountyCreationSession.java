@@ -1,440 +1,555 @@
 package tony26.bountiesPlus;
 
+import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import tony26.bountiesPlus.GUIs.CreateGUI;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-
 import tony26.bountiesPlus.utils.CurrencyUtil;
-import tony26.bountiesPlus.utils.ItemValueCalculator;
+import tony26.bountiesPlus.utils.PlaceholderContext;
+import tony26.bountiesPlus.utils.Placeholders;
 import tony26.bountiesPlus.utils.TimeFormatter;
 
-
+import java.util.*;
 
 /**
- * Manages a player's bounty creation session
+ /**
+ * Manages the creation of a bounty for a player
+ * // note: Tracks money, experience, items, time, and target for a player's bounty creation process
  */
 public class BountyCreationSession {
+    private static final Map<UUID, BountyCreationSession> sessions = new HashMap<>();
+    private final Player player;
+    private double money = 0;
+    private int experienceLevels = 0;
+    private int timeMinutes = 0;
+    private UUID targetUUID = null;
+    private String targetName = null;
+    private List<ItemStack> itemRewards = new ArrayList<>();
+    private boolean confirmPressed = false;
+    private InputType awaitingInput = null;
+    private final Map<String, String> buttonFailures = new HashMap<>();
+    private boolean isGuiActive = false;
+    private final long creationTime = System.currentTimeMillis();
+    private String lastChatInput = null;
+    private long lastChatTimestamp = 0;
+
     public enum InputType {
         MONEY,
         EXPERIENCE,
         TIME,
         PLAYER_NAME,
         CANCEL_CONFIRMATION,
-        ANONYMOUS_CONFIRMATION // Added for anonymous bounty prompt
+        ANONYMOUS_CONFIRMATION,
+        NO_EXPERIENCE_TITLE
     }
 
-    private static final Map<UUID, BountyCreationSession> sessions = new HashMap<>();
-    private final Player player;
-    private double money = 0.0;
-    private int experienceLevels = 0;
-    private int timeMinutes = 0;
-    private InputType awaitingInput = null;
-    private Player targetPlayer = null;
-    private OfflinePlayer targetOfflinePlayer = null;
-    private double calculatedItemValue = 0.0;
-    private List<ItemStack> itemRewards = new ArrayList<>();
-    private boolean permanent = true;
-    private boolean isConfirmPressed = false; // Tracks confirm button press
-
-    public BountyCreationSession(Player player) {
+    /**
+     * Constructs a new bounty creation session for a player
+     * // note: Initializes an empty session for bounty creation
+     */
+    private BountyCreationSession(Player player) {
         this.player = player;
+        this.lastChatInput = null;
+        this.lastChatTimestamp = 0;
     }
 
-    public static void createSession(Player player) {
-        sessions.put(player.getUniqueId(), new BountyCreationSession(player));
-    }
-
-    public static BountyCreationSession getSession(Player player) {
-        return sessions.get(player.getUniqueId());
-    }
-
+    /**
+     * Gets or creates a bounty creation session for a player
+     * // note: Returns existing session or creates a new one if none exists
+     */
     public static BountyCreationSession getOrCreateSession(Player player) {
         BountyCreationSession session = sessions.get(player.getUniqueId());
         if (session == null) {
             session = new BountyCreationSession(player);
             sessions.put(player.getUniqueId(), session);
-            player.sendMessage(ChatColor.GREEN + "Bounty creation session started!");
+            if (BountiesPlus.getInstance().getConfig().getBoolean("debug-enabled", false)) {
+                BountiesPlus.getInstance().getDebugManager().logDebug("[DEBUG] Created new bounty creation session for " + player.getName());
+            }
         }
         return session;
     }
 
-    public boolean hasChanges() {
-        return money > 0 || experienceLevels > 0 || timeMinutes > 0 || hasTarget() || hasItemRewards();
+    /**
+     * Gets an existing bounty creation session for a player
+     * // note: Returns the session if it exists, otherwise null
+     */
+    public static BountyCreationSession getSession(Player player) {
+        return sessions.get(player.getUniqueId());
     }
 
+    /**
+     * Removes a player's bounty creation session
+     * // note: Clears the session from the sessions map
+     */
     public static void removeSession(Player player) {
         sessions.remove(player.getUniqueId());
-    }
-
-    public static boolean hasSession(Player player) {
-        return sessions.containsKey(player.getUniqueId());
-    }
-
-    public double getMoney() {
-        return money;
-    }
-
-    public void setMoney(double money) {
-        this.money = Math.max(0, money);
-    }
-
-    public int getExperience() {
-        return experienceLevels;
-    }
-
-    public void setExperience(int experienceLevels) {
-        this.experienceLevels = Math.max(0, experienceLevels);
-    }
-
-    public int getTimeMinutes() {
-        return timeMinutes;
-    }
-
-    public void setTimeMinutes(int timeMinutes) {
-        this.timeMinutes = Math.max(0, timeMinutes);
-        this.permanent = (timeMinutes == 0);
-    }
-
-    public boolean isPermanent() {
-        return permanent;
-    }
-
-    public void setPermanent(boolean permanent) {
-        this.permanent = permanent;
-        if (permanent) {
-            this.timeMinutes = 0;
+        if (BountiesPlus.getInstance().getConfig().getBoolean("debug-enabled", false)) {
+            BountiesPlus.getInstance().getDebugManager().logDebug("[DEBUG] Removed bounty creation session for " + player.getName());
         }
     }
 
-    public InputType getAwaitingInput() {
-        return awaitingInput;
-    }
-
-    public void setAwaitingInput(InputType awaitingInput) {
-        this.awaitingInput = awaitingInput;
-    }
-
-    public void returnToCreateGUI() {
-        returnToCreateGUI(null);
-    }
-
-    public void returnToCreateGUI(String message) {
-        clearAwaitingInput();
-        Bukkit.getScheduler().runTask(BountiesPlus.getInstance(), () -> {
-            if (player.getOpenInventory() != null) {
-                player.closeInventory();
-            }
-            Bukkit.getScheduler().runTaskLater(BountiesPlus.getInstance(), () -> {
-                new CreateGUI(player).openInventory(player);
-                if (message != null && !message.trim().isEmpty()) {
-                    player.sendMessage(message);
-                }
-            }, 2L);
-        });
-    }
-
-    public void cancelInputAndReturn() {
-        returnToCreateGUI(ChatColor.GREEN + "Returned to bounty creation menu.");
-    }
-
-    public void cancelInputAndReturn(String message) {
-        returnToCreateGUI(message);
-    }
-
-    public void clearAwaitingInput() {
-        this.awaitingInput = null;
-    }
-
+    /**
+     * Checks if the session is awaiting input
+     * // note: Returns true if the session is waiting for player input (e.g., money, experience)
+     */
     public boolean isAwaitingInput() {
         return awaitingInput != null;
     }
 
-    public Player getTargetPlayer() {
-        return targetPlayer;
+    /**
+     * Gets the type of input the session is awaiting
+     * // note: Returns the current input type or null if not awaiting input
+     */
+    public InputType getAwaitingInput() {
+        return awaitingInput;
     }
 
-    public void setTargetPlayer(Player targetPlayer) {
-        this.targetPlayer = targetPlayer;
-        this.targetOfflinePlayer = null;
+    /**
+     * Sets the type of input the session is awaiting
+     * // note: Updates the session to wait for specific player input
+     */
+    public void setAwaitingInput(InputType inputType) {
+        this.awaitingInput = inputType;
     }
 
-    public OfflinePlayer getTargetOfflinePlayer() {
-        return targetOfflinePlayer;
-    }
-
-    public void setTargetPlayerOffline(OfflinePlayer targetOfflinePlayer) {
-        this.targetOfflinePlayer = targetOfflinePlayer;
-        this.targetPlayer = null;
-    }
-
+    /**
+     * Checks if the session has a target selected
+     * // note: Returns true if a target player UUID is set
+     */
     public boolean hasTarget() {
-        return targetPlayer != null || targetOfflinePlayer != null;
+        return targetUUID != null;
     }
 
-    public String getTargetName() {
-        if (targetPlayer != null) {
-            return targetPlayer.getName();
-        } else if (targetOfflinePlayer != null) {
-            return targetOfflinePlayer.getName();
-        }
-        return "None";
-    }
-
+    /**
+     * Gets the target player's UUID
+     * // note: Returns the UUID of the selected target player
+     */
     public UUID getTargetUUID() {
-        if (targetPlayer != null) {
-            return targetPlayer.getUniqueId();
-        } else if (targetOfflinePlayer != null) {
-            return targetOfflinePlayer.getUniqueId();
-        }
-        return null;
+        return targetUUID;
     }
 
-    public boolean isTargetOnline() {
-        if (targetPlayer != null) {
-            return targetPlayer.isOnline();
-        } else if (targetOfflinePlayer != null) {
-            return targetOfflinePlayer.isOnline();
-        }
-        return false;
+    /**
+     * Gets the target player's name
+     * // note: Returns the name of the selected target player
+     */
+    public String getTargetName() {
+        return targetName;
     }
 
+    /**
+     * Sets the target player for the bounty
+     * // note: Updates the target UUID and name for the session
+     */
+    public void setTarget(UUID targetUUID, String targetName) {
+        this.targetUUID = targetUUID;
+        this.targetName = targetName;
+    }
+
+    /**
+     * Gets the money amount for the bounty
+     * // note: Returns the monetary value set for the bounty
+     */
+    public double getMoney() {
+        return money;
+    }
+
+    /**
+     * Sets the money amount for the bounty
+     * // note: Updates the monetary value and clears related button failures
+     */
+    public void setMoney(double money) {
+        this.money = money;
+        clearButtonFailures("money");
+    }
+
+    /**
+     * Gets the experience levels for the bounty
+     * // note: Returns the experience levels set for the bounty
+     */
+    public int getExperience() {
+        return experienceLevels;
+    }
+
+    /**
+     * Sets the experience levels for the bounty
+     * // note: Updates the experience levels and clears related button failures
+     */
+    public void setExperience(int experienceLevels) {
+        this.experienceLevels = experienceLevels;
+        clearButtonFailures("experience");
+    }
+
+    /**
+     * Gets the time duration for the bounty in minutes
+     * // note: Returns the duration set for the bounty
+     */
+    public int getTimeMinutes() {
+        return timeMinutes;
+    }
+
+    /**
+     * Sets the time duration for the bounty in minutes
+     * // note: Updates the duration and clears related button failures
+     */
+    public void setTimeMinutes(int timeMinutes) {
+        this.timeMinutes = timeMinutes;
+        clearButtonFailures("time");
+    }
+
+    /**
+     * Checks if the bounty is permanent
+     * // note: Returns true if no time duration is set
+     */
+    public boolean isPermanent() {
+        return timeMinutes == 0;
+    }
+
+    /**
+     * Gets the item rewards for the bounty
+     * // note: Returns the list of items set as bounty rewards
+     */
     public List<ItemStack> getItemRewards() {
         return new ArrayList<>(itemRewards);
     }
 
-    public void setItemRewards(List<ItemStack> itemRewards) {
-        this.itemRewards = new ArrayList<>(itemRewards);
-        recalculateItemValue();
-    }
-
-    public void addItemReward(ItemStack item) {
-        if (item != null && !item.getType().name().equals("AIR")) {
-            this.itemRewards.add(item.clone());
-            recalculateItemValue();
-        }
-    }
-
-    public void clearItemRewards() {
-        this.itemRewards.clear();
-        this.calculatedItemValue = 0.0;
-    }
-
-    private void recalculateItemValue() {
-        BountiesPlus plugin = BountiesPlus.getInstance();
-        if (plugin != null && plugin.getItemValueCalculator() != null) {
-            ItemValueCalculator calculator = plugin.getItemValueCalculator();
-            this.calculatedItemValue = 0.0;
-            for (ItemStack item : itemRewards) {
-                if (item != null) {
-                    this.calculatedItemValue += calculator.calculateItemValue(item);
-                }
-            }
-        }
-    }
-
-    public double getCalculatedItemValue() {
-        return calculatedItemValue;
-    }
-
-    public String getFormattedItemValue() {
-        BountiesPlus plugin = BountiesPlus.getInstance();
-        if (plugin != null && plugin.getItemValueCalculator() != null) {
-            return CurrencyUtil.formatMoney(calculatedItemValue);
-        }
-        return String.format("%.2f", calculatedItemValue);
-    }
-
-    public int getItemRewardCount() {
-        return itemRewards.size();
-    }
-
-    public int getTotalItemCount() {
-        return itemRewards.stream().mapToInt(ItemStack::getAmount).sum();
-    }
-
+    /**
+     * Checks if the session has item rewards
+     * // note: Returns true if any items are set as rewards
+     */
     public boolean hasItemRewards() {
         return !itemRewards.isEmpty();
     }
 
-    public String getFormattedTime() {
-        return TimeFormatter.formatMinutesToReadable(timeMinutes, permanent);
-    }
-
-    public String getFormattedMoney() {
-        if (money <= 0) {
-            return "$0";
-        }
-        return "$" + String.format("%.2f", money);
-    }
-
-    public String getFormattedExperience() {
-        if (experienceLevels == 0) {
-            return "0 XP Levels";
-        }
-        return experienceLevels + " XP Level" + (experienceLevels > 1 ? "s" : "");
-    }
-
-    public boolean isComplete() {
-        return hasTarget() && hasRewards();
-    }
-
-    public boolean hasRewards() {
-        return money > 0 || experienceLevels > 0 || hasItemRewards();
-    }
-
-    public double getTotalValue() {
-        double total = money;
-        if (hasItemRewards()) {
-            total += calculatedItemValue;
-        }
-        return total;
-    }
-
-    public String getFormattedItems() {
-        if (itemRewards.isEmpty()) {
-            return "No items";
-        }
-        int totalCount = getTotalItemCount();
-        String valueText = calculatedItemValue > 0 ?
-                " (Value: $" + getFormattedItemValue() + ")" : "";
-        return totalCount + " item" + (totalCount != 1 ? "s" : "") + valueText;
-    }
-
-    public void reset() {
-        this.money = 0.0;
-        this.experienceLevels = 0;
-        this.timeMinutes = 0;
-        this.permanent = true;
-        this.targetPlayer = null;
-        this.targetOfflinePlayer = null;
-        this.awaitingInput = null;
-        this.itemRewards.clear();
-        this.isConfirmPressed = false;
-    }
-
-    public Player getPlayer() {
-        return player;
-    }
-
-    public void addMoney(double amount) {
-        this.money += amount;
-        if (this.money < 0) {
-            this.money = 0;
-        }
-    }
-
-    public void addExperience(int levels) {
-        this.experienceLevels += levels;
-        if (this.experienceLevels < 0) {
-            this.experienceLevels = 0;
-        }
-    }
-
-    public void setDuration(int amount, String unit) {
-        switch (unit.toLowerCase()) {
-            case "minutes":
-            case "minute":
-            case "min":
-            case "m":
-                this.timeMinutes = amount;
-                break;
-            case "hours":
-            case "hour":
-            case "hr":
-            case "h":
-                this.timeMinutes = amount * 60;
-                break;
-            case "days":
-            case "day":
-            case "d":
-                this.timeMinutes = amount * 60 * 24;
-                break;
-            case "weeks":
-            case "week":
-            case "w":
-                this.timeMinutes = amount * 60 * 24 * 7;
-                break;
-            default:
-                this.timeMinutes = amount;
-                break;
-        }
-        this.permanent = (this.timeMinutes == 0);
-    }
-
-    public String getSummary() {
-        StringBuilder summary = new StringBuilder();
-        summary.append("=== Bounty Creation Summary ===\n");
-        summary.append("Target: ").append(getTargetName());
-        if (hasTarget()) {
-            summary.append(" (").append(isTargetOnline() ? "Online" : "Offline").append(")\n");
-        } else {
-            summary.append("\n");
-        }
-        summary.append("Money Reward: ").append(getFormattedMoney()).append("\n");
-        summary.append("Experience Reward: ").append(getFormattedExperience()).append("\n");
-        summary.append("Item Rewards: ").append(getFormattedItems()).append("\n");
-        summary.append("Duration: ").append(getFormattedTime()).append("\n");
-        summary.append("Total Value: ").append(String.format("$%.2f", getTotalValue()));
-        return summary.toString();
-    }
-
-    public String getValidationError() {
-        if (!hasTarget()) {
-            return "No target player selected";
-        }
-        if (!hasRewards()) {
-            return "No rewards specified (money, experience, or Items)";
-        }
-        if (money > 0) {
-            net.milkbowl.vault.economy.Economy economy = BountiesPlus.getEconomy();
-            if (economy != null && !economy.has(player, money)) {
-                return "Insufficient funds (need: " + getFormattedMoney() + ", have: $" +
-                        String.format("%.2f", economy.getBalance(player)) + ")";
-            }
-        }
-        if (experienceLevels > 0 && player.getLevel() < experienceLevels) {
-            return "Insufficient experience levels (need: " + experienceLevels +
-                    ", have: " + player.getLevel() + ")";
-        }
-        return null;
-    }
-
-    public boolean isValid() {
-        return getValidationError() == null;
-    }
-
-    public BountyCreationSession clone() {
-        BountyCreationSession clone = new BountyCreationSession(this.player);
-        clone.money = this.money;
-        clone.experienceLevels = this.experienceLevels;
-        clone.timeMinutes = this.timeMinutes;
-        clone.permanent = this.permanent;
-        clone.targetPlayer = this.targetPlayer;
-        clone.targetOfflinePlayer = this.targetOfflinePlayer;
-        clone.itemRewards = new ArrayList<>(this.itemRewards);
-        clone.isConfirmPressed = this.isConfirmPressed;
-        return clone;
+    /**
+     * Sets the item rewards for the bounty
+     * // note: Updates the list of items and clears related button failures
+     */
+    public void setItemRewards(List<ItemStack> itemRewards) {
+        this.itemRewards = itemRewards != null ? new ArrayList<>(itemRewards) : new ArrayList<>();
+        clearButtonFailures("items");
     }
 
     /**
-     * Gets whether the confirm button was pressed
+     * Checks if the confirm button was pressed
+     * // note: Returns true if the player confirmed the bounty
      */
     public boolean isConfirmPressed() {
-        return isConfirmPressed;
+        return confirmPressed;
     }
 
     /**
-     * Sets whether the confirm button was pressed
+     * Sets the confirm button pressed state
+     * // note: Updates whether the player confirmed the bounty
      */
-    public void setConfirmPressed(boolean isConfirmPressed) {
-        this.isConfirmPressed = isConfirmPressed;
+    public void setConfirmPressed(boolean confirmPressed) {
+        this.confirmPressed = confirmPressed;
+    }
+
+    /**
+     * Checks if the session has changes
+     * // note: Returns true if money, experience, time, target, or items are set
+     */
+    public boolean hasChanges() {
+        return money > 0 || experienceLevels > 0 || timeMinutes > 0 || hasTarget() || hasItemRewards();
+    }
+
+    /**
+     * Validates the bounty for completeness
+     * // note: Returns true if the bounty meets all requirements
+     */
+    public boolean isComplete() {
+        return isValid() && (money > 0 || experienceLevels > 0 || hasItemRewards());
+    }
+
+    /**
+     * Validates the bounty configuration
+     * // note: Returns true if the bounty is valid based on config settings
+     */
+    public boolean isValid() {
+        BountiesPlus plugin = BountiesPlus.getInstance();
+        FileConfiguration config = plugin.getConfig();
+
+        if (!hasTarget()) {
+            return false;
+        }
+
+        if (!config.getBoolean("money.allow-zero-dollar-bounties", true) && money == 0 && !hasItemRewards() && experienceLevels == 0) {
+            return false;
+        }
+
+        if (money < 0 || experienceLevels < 0 || timeMinutes < 0) {
+            return false;
+        }
+
+        if (config.getBoolean("time.require-time", false) && timeMinutes == 0) {
+            return false;
+        }
+
+        if (money > config.getDouble("max-bounty-amount", 1000000.0)) {
+            return false;
+        }
+
+        double totalItemValue = itemRewards.stream()
+                .filter(Objects::nonNull)
+                .mapToDouble(item -> plugin.getItemValueCalculator().calculateItemValue(item))
+                .sum();
+        if (money + totalItemValue > config.getDouble("max-bounty-amount", 1000000.0)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Gets the validation error message
+     * // note: Returns a message explaining why the bounty is invalid
+     */
+    public String getValidationError() {
+        BountiesPlus plugin = BountiesPlus.getInstance();
+        FileConfiguration config = plugin.getConfig();
+        FileConfiguration messages = plugin.getMessagesConfig();
+
+        if (!hasTarget()) {
+            return ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("no-target-selected", "&cYou must select a target player!"));
+        }
+
+        if (!config.getBoolean("money.allow-zero-dollar-bounties", true) && money == 0 && !hasItemRewards() && experienceLevels == 0) {
+            return ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("zero-dollar-bounty", "&cBounties must include money, items, or experience!"));
+        }
+
+        if (money < 0) {
+            return ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("negative-money", "&cBounty money cannot be negative!"));
+        }
+
+        if (experienceLevels < 0) {
+            return ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("negative-experience", "&cBounty experience cannot be negative!"));
+        }
+
+        if (timeMinutes < 0) {
+            return ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("negative-time", "&cBounty time cannot be negative!"));
+        }
+
+        if (config.getBoolean("time.require-time", false) && timeMinutes == 0) {
+            return ChatColor.translateAlternateColorCodes('&',
+                    messages.getString("time-required", "&cYou must set a time duration for the bounty!"));
+        }
+
+        double maxBountyAmount = config.getDouble("max-bounty-amount", 1000000.0);
+        if (money > maxBountyAmount) {
+            return ChatColor.translateAlternateColorCodes('&',
+                    Placeholders.apply(
+                            messages.getString("bounty-invalid-amount", "&cTotal bounty value cannot exceed $%bountiesplus_max_amount%!"),
+                            PlaceholderContext.create().withAmount(maxBountyAmount)));
+        }
+
+        double totalItemValue = itemRewards.stream()
+                .filter(Objects::nonNull)
+                .mapToDouble(item -> plugin.getItemValueCalculator().calculateItemValue(item))
+                .sum();
+        if (money + totalItemValue > maxBountyAmount) {
+            return ChatColor.translateAlternateColorCodes('&',
+                    Placeholders.apply(
+                            messages.getString("bounty-invalid-amount", "&cTotal bounty value cannot exceed $%bountiesplus_max_amount%!"),
+                            PlaceholderContext.create().withAmount(maxBountyAmount)));
+        }
+
+        return ChatColor.translateAlternateColorCodes('&',
+                messages.getString("invalid-bounty", "&cInvalid bounty configuration!"));
+    }
+
+    /**
+     * Validates if a chat input is unique to prevent duplicate processing
+     * // note: Checks if the input is within a 50ms window to debounce duplicates
+     */
+    public boolean validateChatInput(String input) {
+        long currentTime = System.currentTimeMillis();
+        if (lastChatInput != null && lastChatInput.equals(input) && (currentTime - lastChatTimestamp < 50)) {
+            return false;
+        }
+        lastChatInput = input;
+        lastChatTimestamp = currentTime;
+        return true;
+    }
+
+    /**
+     * Returns the player to the CreateGUI
+     * // note: Reopens the CreateGUI for the player
+     */
+    public void returnToCreateGUI() {
+        CreateGUI createGUI = new CreateGUI(player, BountiesPlus.getInstance().getEventManager());
+        createGUI.openInventory(player);
+    }
+
+    /**
+     * Adds a button failure message
+     * // note: Stores a failure message for a specific button action
+     */
+    public void addButtonFailure(String button, String message) {
+        buttonFailures.put(button, message);
+    }
+
+    /**
+     * Clears all button failure messages
+     * // note: Removes all failure messages for buttons in the session
+     */
+    public void clearButtonFailures() {
+        buttonFailures.clear();
+    }
+
+    /**
+     * Clears button failure messages for a specific button
+     * // note: Removes failure messages for a specific button
+     */
+    public void clearButtonFailures(String button) {
+        buttonFailures.remove(button);
+    }
+
+    /**
+     * Gets the button failure messages
+     * // note: Returns a list of failure messages for buttons
+     */
+    public List<String> getButtonFailures() {
+        return new ArrayList<>(buttonFailures.values());
+    }
+
+    /**
+     * Gets whether the GUI is actively open
+     * // note: Indicates if the CreateGUI is currently displayed for the player
+     */
+    public boolean isGuiActive() {
+        return isGuiActive;
+    }
+
+    /**
+     * Sets whether the GUI is actively open
+     * // note: Updates the state of the CreateGUI display
+     */
+    public void setGuiActive(boolean isGuiActive) {
+        this.isGuiActive = isGuiActive;
+    }
+
+    /**
+     * Formats the money amount for display
+     * // note: Returns the formatted money value using CurrencyUtil
+     */
+    public String getFormattedMoney() {
+        return CurrencyUtil.formatMoney(money);
+    }
+
+    /**
+     * Formats the experience levels for display
+     * // note: Returns the formatted experience value with appropriate units
+     */
+    public String getFormattedExperience() {
+        return experienceLevels == 0 ? "0 XP Levels" : experienceLevels + " XP Level" + (experienceLevels > 1 ? "s" : "");
+    }
+
+    /**
+     * Formats the time duration for display
+     * // note: Returns the formatted duration using TimeFormatter or 'Permanent' if none set
+     */
+    public String getFormattedTime() {
+        return TimeFormatter.formatMinutesToReadable(timeMinutes, isPermanent());
+    }
+
+    /**
+     * Adds money to the existing bounty amount
+     * // note: Accumulates the money value and clears related button failures
+     */
+    public void addMoney(double amount) {
+        this.money += amount;
+        clearButtonFailures("money");
+    }
+
+    /**
+     * Adds experience levels to the existing bounty
+     * // note: Accumulates the experience levels and clears related button failures
+     */
+    public void addExperience(int levels) {
+        this.experienceLevels += levels;
+        clearButtonFailures("experience");
+    }
+
+    /**
+     * Sets the duration based on amount and unit
+     * // note: Converts input amount and unit to minutes and updates the session
+     */
+    public void setDuration(int amount, String unit) {
+        int minutes;
+        switch (unit.toLowerCase()) {
+            case "d":
+            case "day":
+            case "days":
+                minutes = amount * 24 * 60;
+                break;
+            case "h":
+            case "hour":
+            case "hours":
+            case "hr":
+                minutes = amount * 60;
+                break;
+            case "m":
+            case "min":
+            case "minutes":
+            case "":
+                minutes = amount;
+                break;
+            default:
+                minutes = amount; // Default to minutes if unit is unrecognized
+                break;
+        }
+        setTimeMinutes(minutes);
+    }
+
+    /**
+     * Sets the target player (online)
+     * // note: Updates the target UUID and name for an online player
+     */
+    public void setTargetPlayer(Player target) {
+        if (target != null) {
+            this.targetUUID = target.getUniqueId();
+            this.targetName = target.getName();
+        } else {
+            this.targetUUID = null;
+            this.targetName = null;
+        }
+    }
+
+    /**
+     * Sets the target player (offline)
+     * // note: Updates the target UUID and name for an offline player
+     */
+    public void setTargetPlayerOffline(OfflinePlayer target) {
+        if (target != null) {
+            this.targetUUID = target.getUniqueId();
+            this.targetName = target.getName() != null ? target.getName() : "Unknown";
+        } else {
+            this.targetUUID = null;
+            this.targetName = null;
+        }
+    }
+
+    /**
+     * Clears the awaiting input state
+     * // note: Resets the input type to null
+     */
+    public void clearAwaitingInput() {
+        this.awaitingInput = null;
+    }
+
+    /**
+     * Cancels input and returns to CreateGUI
+     * // note: Clears awaiting input and reopens the CreateGUI
+     */
+    public void cancelInputAndReturn() {
+        clearAwaitingInput();
+        returnToCreateGUI();
     }
 }

@@ -5,6 +5,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import tony26.bountiesPlus.GUIs.CreateGUI;
+import tony26.bountiesPlus.utils.MessageUtils;
 import tony26.bountiesPlus.utils.PlaceholderContext;
 import tony26.bountiesPlus.utils.Placeholders;
 import java.util.*;
@@ -36,24 +37,18 @@ public class AnonymousBounty {
 
     /**
      * Prompts the player to confirm anonymity for a bounty
+     * // note: Sends anonymous-bounty-prompt message and sets up chat listener for response
      */
     public void promptForAnonymity(Player player, BountyCreationSession session) {
         plugin.getLogger().info("Prompting " + player.getName() + " for anonymous bounty confirmation");
+        // Prevent re-sending prompt if already awaiting anonymous confirmation
+        if (session.getAwaitingInput() == BountyCreationSession.InputType.ANONYMOUS_CONFIRMATION) {
+            plugin.getDebugManager().logDebug("[DEBUG - AnonymousBounty] Skipping duplicate prompt for " + player.getName() + ": already awaiting ANONYMOUS_CONFIRMATION");
+            return;
+        }
         double anonymousCost = calculateAnonymousCost(session.getMoney());
         pendingSessions.put(player.getUniqueId(), new AnonymousSession(session, anonymousCost));
         session.setAwaitingInput(BountyCreationSession.InputType.ANONYMOUS_CONFIRMATION);
-        FileConfiguration guiConfig = plugin.getCreateGUIConfig();
-        List<String> promptMessages = guiConfig.getStringList("messages.anonymous-bounty-prompt");
-        if (promptMessages.isEmpty()) {
-            promptMessages = Arrays.asList(
-                    "&6=== Anonymous Bounty Confirmation ===",
-                    "&eYou are about to place a bounty on &c%bountiesplus_target_name% &efor &a$%bountiesplus_money_value%&e.",
-                    "&eDo you want to remain anonymous? (Fee: &a$%anonymous_cost%&e)",
-                    "&aType 'yes' or 'y' to set an anonymous bounty",
-                    "&aType 'no' or 'n' to set a regular bounty",
-                    "&7Type 'cancel' to return to the bounty creation GUI"
-            );
-        }
         PlaceholderContext context = PlaceholderContext.create()
                 .player(player)
                 .target(session.getTargetUUID())
@@ -62,9 +57,11 @@ public class AnonymousBounty {
                 .timeValue(session.getFormattedTime())
                 .itemCount(session.getItemRewards().size())
                 .itemValue(session.getItemRewards().stream().mapToDouble(item -> plugin.getItemValueCalculator().calculateItemValue(item)).sum());
-        context = context.setter(player.getUniqueId()); // Add setter for consistency
-        context = context.taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
-                .taxAmount(session.getMoney() * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0));
+        context = context.setter(player.getUniqueId())
+                .taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
+                .taxAmount(session.getMoney() * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
+                .withAmount(anonymousCost); // Add anonymous cost to context
+        MessageUtils.sendFormattedMessage(player, "anonymous-bounty-prompt", context);
     }
     /**
      * Calculates the cost for an anonymous bounty based on bounty value
@@ -201,9 +198,10 @@ public class AnonymousBounty {
 
     /**
      * Places a normal (non-anonymous) bounty
+     * // note: Creates a bounty with money, items, XP, and duration, showing the setter’s identity
      */
     private void placeNormalBounty(Player player, BountyCreationSession session) {
-        CreateGUI createGUI = new CreateGUI(player);
+        CreateGUI createGUI = new CreateGUI(player, plugin.getEventManager());
         createGUI.handleConfirmButtonDirect(player, session);
     }
 

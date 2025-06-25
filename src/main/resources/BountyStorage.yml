@@ -1,8 +1,0 @@
-# Bounty storage file for BountiesPlus
-bounties:
-# Data will be stored here in the format:
-# <targetUUID>:
-#   <setterUUID>:
-#     amount: <amount>
-#     set_time: <timestamp>
-#     expire_time: <timestamp>

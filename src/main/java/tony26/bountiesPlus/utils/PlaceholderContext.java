@@ -1,4 +1,3 @@
-// file: src/main/java/tony26/bountiesPlus/utils/PlaceholderContext.java
 package tony26.bountiesPlus.utils;
 
 import org.bukkit.entity.Player;
@@ -9,59 +8,58 @@ import java.util.UUID;
  * Context builder class for organizing placeholder data // note: Stores data for placeholder replacement in BountiesPlus
  */
 public class PlaceholderContext {
-    private Player player;// Added for player context in placeholders
-    private UUID targetUUID;// Added for target UUID in placeholders
-    private UUID setterUUID;// Added for setter UUID in placeholders
-    private Double bountyAmount;// Added for bounty amount in placeholders
-    private Double totalBountyAmount;// Added for total bounty amount in placeholders
-    private String setTime;// Added for bounty set time in placeholders
-    private String expireTime;// Added for bounty set and expire times in placeholders
-    private Double multiplier;// Added for multiplier placeholders
-    private String killerName;// Added for killer name placeholders
-    private String deathTime;// Added for death time placeholders
-    private String setterList;// Added for list of setters in placeholders
-    private Integer bountyCount;// Added for bounty count placeholders
-    private Double moneyValue;// Added for money-related placeholders
-    private Integer expValue;// Added for experience-related placeholders
-    private String timeValue;// Added for time-related placeholders
-    private Integer itemCount;// Added for item-related placeholders
-    private Double itemValue;// Added for item-related placeholders
-    private Double taxRate;// Added for tax-related placeholders
-    private Double taxAmount;// Added for tax-related placeholders
-    private Double refundAmount;// Added for refund-related placeholders
-    private String filterStatus;// Added for filter-related placeholders
-    private String filterDetails;// Added for filter-related placeholders
-    private Integer currentPage;// Added for pagination in placeholders
-    private Integer totalPages;// Added for pagination in placeholders
-    private String boostTime;// Added for boost-related placeholders
-    private String moneyLine;// Added for money-related placeholders
-    private String experienceLine;// Added for experience-related placeholders
-    private String error;// Added for error messages in placeholders
-    private String item;// Added for item-related placeholders
-    private UUID sender;// Added for sender UUID in placeholders
-    private String material;// Added for material-related placeholders
-    private String button;// Added for button-related placeholders
-    private Double anonymousCost;// Added for anonymous bounty cost
-    private String input;// Added for input-related placeholders
-    private String unit;// Added for unit-related placeholders
-    private String time;// Added for time-related placeholders
-    private Integer hunters;// Added for number of hunters
-    private Double frenzy;// Added for frenzy amount
-    private Double boost;// Added for bounty boost amount
-    private String expiry;// Added for bounty expiry time
-    private Double pool;// Added for pool amount
+    private Player player; // Added for player context in placeholders
+    private UUID targetUUID; // Added for target UUID in placeholders
+    private UUID setterUUID; // Added for setter UUID in placeholders
+    private Double bountyAmount; // Added for bounty amount in placeholders
+    private Double totalBountyAmount; // Added for total bounty amount in placeholders
+    private String setTime; // Added for bounty set time in placeholders
+    private String expireTime; // Added for bounty set and expire times in placeholders
+    private Double multiplier; // Added for multiplier placeholders
+    private String killerName; // Added for killer name placeholders
+    private String deathTime; // Added for death time placeholders
+    private String setterList; // Added for list of setters in placeholders
+    private Integer bountyCount; // Added for bounty count placeholders
+    private Double moneyValue; // Added for money-related placeholders
+    private Integer expValue; // Added for experience-related placeholders
+    private String timeValue; // Added for time-related placeholders
+    private Integer itemCount; // Added for item-related placeholders
+    private Double itemValue; // Added for item-related placeholders
+    private Double taxRate; // Added for tax-related placeholders
+    private Double taxAmount; // Added for tax-related placeholders
+    private Double refundAmount; // Added for refund-related placeholders
+    private String filterStatus; // Added for filter-related placeholders
+    private String filterDetails; // Added for filter-related placeholders
+    private Integer currentPage; // Added for pagination in placeholders
+    private Integer totalPages; // Added for pagination in placeholders
+    private String boostTime; // Added for boost-related placeholders
+    private String moneyLine; // Added for money-related placeholders
+    private String experienceLine; // Added for experience-related placeholders
+    private String error; // Added for error messages in placeholders
+    private String item; // Added for item-related placeholders
+    private UUID sender; // Added for sender UUID in placeholders
+    private String material; // Added for material-related placeholders
+    private String button; // Added for button-related placeholders
+    private Double anonymousCost; // Added for anonymous bounty cost
+    private String input; // Added for input-related placeholders
+    private String unit; // Added for unit-related placeholders
+    private String time; // Added for time-related placeholders
+    private Integer hunters; // Added for number of hunters
+    private Double frenzy; // Added for frenzy amount
+    private Double boost; // Added for bounty boost amount
+    private String expiry; // Added for bounty expiry time
+    private Double pool; // Added for pool amount
     private String sponsors; // Added for sponsor details
     private String itemName; // Added for blacklisted item name
     private Integer itemUses; // Added for item uses
     private String onlineStatus; // Added for player online status
     private String lastSeen; // Added for last seen time
-    private Integer rank;  // Added for player rank
+    private Integer rank; // Added for player rank
+    private Double poolIncreasePercent; // Added for pool increase percentage in placeholders
 
     private PlaceholderContext() {
     }
-//====================================================================================================
-//      GETTERS
-//====================================================================================================
+
     /**
      * Creates a new PlaceholderContext instance // note: Initializes an empty context for placeholder data
      */
@@ -340,6 +338,14 @@ public class PlaceholderContext {
     }
 
     /**
+     * Sets the pool increase percentage for the context // note: Stores the pool increase percentage for placeholder replacement
+     */
+    public PlaceholderContext poolIncreasePercent(Double poolIncreasePercent) {
+        this.poolIncreasePercent = poolIncreasePercent;
+        return this;
+    }
+
+    /**
      * Getters for accessing context data // note: Provides access to the stored data for placeholder replacement
      */
     public Player getPlayer() {
@@ -524,5 +530,9 @@ public class PlaceholderContext {
 
     public String getSponsors() {
         return sponsors;
+    }
+
+    public Double getPoolIncreasePercent() {
+        return poolIncreasePercent;
     }
 }

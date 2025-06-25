@@ -1,0 +1,277 @@
+#####################################################################################
+# General GUI Settings
+#####################################################################################
+gui-title: "        &4&l⚔ &4&l&nCreate a Bounty&4&l &4&l⚔"
+
+#####################################################################################
+# Border Configuration
+#####################################################################################
+border:
+  enabled: true
+  material: WHITE_STAINED_GLASS_PANE
+  enchantment-glow: false
+  slots: [0,1,2,3,4,5,6,7,8,9,17,18,26,27,35,36,44,45,46,47,48,49,50,51,52,53]
+
+#####################################################################################
+# Bounty Skull Slots
+#####################################################################################
+# Defines slots where player heads are placed for target selection
+# Slots must be 0-53, unique, and not overlap with border.slots or plugin button slots (e.g., 46-52)
+bounty-skull-slots:
+  slots: [10,11,12,13,14,15,16,19,20,21,22,23,24,25,28,29,30,31,32,33,34,37,38,39,40,41,42,43]
+
+#####################################################################################
+# Player Head Display
+#####################################################################################
+player-head:
+  material: PLAYER_HEAD
+  slot: 10
+  name:
+    selected: "&6» &a%bountiesplus_target% &6«"
+    online: "&a%bountiesplus_target%"
+    offline: "&7%bountiesplus_target%"
+  lore:
+    selected:
+      - "&6Currently Selected Target"
+      - ""
+      - "&7Bounties: %bountiesplus_bounty_count%"
+      - "%bountiesplus_online_status%"
+      - ""
+      - "&eClick to deselect this player"
+    not-selected:
+      - "&7Bounties: %bountiesplus_bounty_count%"
+      - "%bountiesplus_online_status%"
+      - ""
+      - "&eClick to set a bounty on this player!"
+  enchantment-glow:
+    selected: true
+    not-selected: false
+  online-status:
+    online: "&7Status: &aOnline"
+    offline: "&7Status: &cOffline"
+    last-seen: "&7Last Seen: &e%last_seen% ago"
+
+#####################################################################################
+# Confirm Button Configuration
+#####################################################################################
+confirm-button:
+  slot: 52
+  material: LIME_DYE
+  name: "&a&lConfirm"
+  lore:
+    - "&7Click to confirm and create"
+    - "&7the bounty with current settings"
+    - ""
+    - "&7Money: &f%bountiesplus_money_value%"
+    - "&7Experience: &f%bountiesplus_exp_value%"
+    - "&7Duration: &f%bountiesplus_duration%"
+    - ""
+    - "&aReady to proceed!"
+  enchantment-glow: true
+  confirm-button-filler:
+    material: WHITE_STAINED_GLASS_PANE
+    name: " "
+    lore: []
+    enchantment-glow: false
+
+#####################################################################################
+# Add Items Button Configuration
+#####################################################################################
+add-items-button:
+  slot: 50
+  material: CHEST
+  no-items:
+    name: "&b&lAdd Items"
+    lore:
+      - "&7Drag and Drop items"
+      - "&7into the GUI to add them"
+      - "&7to the bounty"
+      - ""
+      - "&7You can place items in the"
+      - "&7empty slots inside the GUI"
+      - ""
+      - "&7Right-click items to remove them"
+      - ""
+      - "&bSpecial item rewards!"
+    enchantment-glow: false
+  has-items:
+    name: "&6&lEdit Items (&e%bountiesplus_item_count%&6&l)"
+    lore:
+      - "&7You have &e%bountiesplus_item_count% &items"
+      - "&7in this bounty worth %bountiesplus_item_value%"
+      - ""
+      - "&7Drag and Drop more items"
+      - "&7into the GUI to add them"
+      - ""
+      - "&7Right-click items to remove them"
+      - "&7Left-click here to view all items"
+      - ""
+      - "&6Currently offering items!"
+    enchantment-glow: true
+
+#####################################################################################
+# Add Money Button Configuration
+#####################################################################################
+add-money-button:
+  slot: 48
+  material: EMERALD
+  name: "&a&lAdd Money"
+  lore:
+    - "&7Click to add monetary"
+    - "&7rewards to this bounty"
+    - ""
+    - "&7Current: &a%bountiesplus_money_value%"
+    - ""
+    - "&aExtra cash rewards!"
+  enchantment-glow: false
+  no-money-title: "&cYou don't have any money to add"
+  title-duration:
+    fade-in: 20
+    stay: 60
+    fade-out: 20
+  reopen-delay: 100
+
+#####################################################################################
+# Total Bounty Value Button Configuration
+#####################################################################################
+total-bounty-value-button:
+  slot: 49
+  material: PAPER
+  name: "&c&lChoose A Target"
+  lore:
+    - "&eClick here to choose a"
+    - "&eplayer to set a bounty on"
+    - ""
+    - "&7Current bounty value:"
+    - "&f%bountiesplus_total_bounty%"
+    - ""
+    - "&7Money: &a%bountiesplus_money_value%"
+    - "&7Experience: &e%bountiesplus_total_exp%"
+    - "&7Items: &b%bountiesplus_item_count% &7worth &b%bountiesplus_item_value%"
+    - "&7Duration: &d%bountiesplus_duration%"
+  enchantment-glow: true
+  target-selected:
+    material: PLAYER_HEAD
+    name: "&c&lBounty on %bountiesplus_target%"
+    lore:
+      - "&7Current bounty value:"
+      - "&f%bountiesplus_total_bounty%"
+      - ""
+      - "&7Money: &a%bountiesplus_money_value%"
+      - "&7Experience: &e%bountiesplus_total_exp%"
+      - "&7Items: &b%bountiesplus_item_count% &7worth &b%bountiesplus_item_value%"
+      - "&7Duration: &d%bountiesplus_duration%"
+    enchantment-glow: true
+  no-rewards-title:
+    title: "&cNo Rewards Specified"
+    subtitle: "&7You must add $, XP or items to the bounty!"
+    title-duration:
+      fade-in: 20
+      stay: 60
+      fade-out: 20
+    reopen-delay: 100
+
+#####################################################################################
+# Add Experience Button Configuration
+#####################################################################################
+add-experience-button:
+  slot: 47
+  material: EXPERIENCE_BOTTLE
+  name: "&e&lAdd Experience"
+  lore:
+    - "&7Click to add experience"
+    - "&7rewards to this bounty"
+    - ""
+    - "&7Current: &e%bountiesplus_exp_value%"
+    - ""
+    - "&eBonus XP for the hunter!"
+  enchantment-glow: false
+  no-experience-title: "&cYou don't have any XP levels to add"
+  title-duration:
+    fade-in: 10
+    stay: 40
+    fade-out: 10
+  reopen-delay: 60
+
+#####################################################################################
+# Add Time Button Configuration
+#####################################################################################
+add-time-button:
+  slot: 51
+  material: CLOCK
+  name: "&d&lAdd Time"
+  lore:
+    - "&7Click to set the duration"
+    - "&7this bounty will remain active"
+    - ""
+    - "&7Current: &d%bountiesplus_duration%"
+    - ""
+    - "&dExpiration settings"
+  enchantment-glow: false
+
+#####################################################################################
+# Cancel Button Configuration
+#####################################################################################
+cancel-button:
+  slot: 46
+  material: RED_DYE
+  name: "&c&lCancel"
+  lore:
+    - "&7Click to cancel bounty"
+    - "&7creation and return"
+    - ""
+    - "&cDiscards all changes!"
+  enchantment-glow: false
+  no-session:
+    material: BARRIER
+    name: "&c&lReturn to the Bounty GUI"
+    lore:
+      - "&7Click to return to Bounty GUI"
+    enchantment-glow: false
+
+#####################################################################################
+# Boosted Skull Display
+#####################################################################################
+boosted-skull:
+  name: "&6&l» &e%bountiesplus_target% &6&l« (&6Boosted %bountiesplus_boost%x)"
+  lore:
+    - "&6Currently Boosted Target"
+    - "&7Bounties: %bountiesplus_bounty_count%"
+    - "&7Boost Multiplier: &6%bountiesplus_boost%x"
+    - "%bountiesplus_online_status%"
+    - ""
+    - "&eClick to set a bounty on this player!"
+  enchantment-glow: true
+
+#####################################################################################
+# Frenzy Skull Display
+#####################################################################################
+frenzy-skull:
+  name: "&c&l» &e%bountiesplus_target% &c&l« (&cFrenzy %bountiesplus_frenzy%x)"
+  lore:
+    - "&cFrenzy Mode Active!"
+    - "&7Bounties: %bountiesplus_bounty_count%"
+    - "&7Frenzy Multiplier: &c%bountiesplus_frenzy%x"
+    - "%bountiesplus_online_status%"
+    - ""
+    - "&eClick to set a bounty on this player!"
+  enchantment-glow: true
+
+#####################################################################################
+# Custom Items Configuration
+#####################################################################################
+Custom-Items:
+  filler:
+    material: WHITE_STAINED_GLASS_PANE
+    name: " "
+    lore: []
+    enchantment-glow: false
+    slots: []
+  example-item:
+    material: DIAMOND
+    name: "&bExample Item"
+    lore:
+      - "&7This is a sample custom item"
+      - "&7No functionality, just for display"
+    enchantment-glow: true
+    slots: []

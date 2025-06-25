@@ -8,24 +8,36 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import tony26.bountiesPlus.BountiesPlus;
 
+import java.util.List;
 import java.util.Map;
 
 public class ItemValueCalculator {
 
     private final BountiesPlus plugin;
     private FileConfiguration itemValueConfig;
+    private void loadConfig() {
+        this.itemValueConfig = plugin.getItemValueConfig();
+    }
+    public void reloadConfig() {
+        loadConfig();
+    }
 
     public ItemValueCalculator(BountiesPlus plugin) {
         this.plugin = plugin;
         loadConfig();
     }
 
-    private void loadConfig() {
-        this.itemValueConfig = plugin.getItemValueConfig();
-    }
-
-    public void reloadConfig() {
-        loadConfig();
+    /**
+     * Calculates the total value of a list of items // note: Computes value for a List<ItemStack> by converting to array
+     */
+    public double calculateItemsValue(List<ItemStack> items) {
+        if (items == null || items.isEmpty()) {
+            return 0.0;
+        }
+        ItemStack[] itemArray = items.stream()
+                .filter(item -> item != null && item.getType() != Material.AIR)
+                .toArray(ItemStack[]::new);
+        return calculateTotalValue(itemArray);
     }
 
     /**

@@ -5,9 +5,9 @@ import com.comphenix.protocol.ProtocolLibrary;
 import com.comphenix.protocol.ProtocolManager;
 import com.comphenix.protocol.events.PacketContainer;
 import com.comphenix.protocol.wrappers.WrappedChatComponent;
+import com.cryptomorin.xseries.XMaterial;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
-import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -19,6 +19,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import tony26.bountiesPlus.BountiesPlus;
+import tony26.bountiesPlus.utils.EventManager;
 import tony26.bountiesPlus.utils.VersionUtils;
 
 import java.util.ArrayList;
@@ -45,10 +46,14 @@ public class Jammer implements Listener {
     private String actionBarMessage;
     private String jammerBlockedMessage;
 
-    public Jammer(BountiesPlus plugin) {
+    /**
+     * Initializes the Jammer system
+     * // note: Sets up configuration and registers listener
+     */
+    public Jammer(BountiesPlus plugin, EventManager eventManager) {
         this.plugin = plugin;
         loadConfiguration();
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        eventManager.register(this);
     }
 
     private void loadConfiguration() {
@@ -79,10 +84,11 @@ public class Jammer implements Listener {
     }
 
     /**
-     * Creates a new jammer item // note: Creates a redstone torch item with NBT tag for type
+     * Creates a new jammer item
+     * // note: Creates a redstone torch item with NBT tag for type
      */
     public ItemStack createJammerItem() {
-        ItemStack jammer = new ItemStack(Material.REDSTONE_TORCH_ON);
+        ItemStack jammer = new ItemStack(XMaterial.REDSTONE_TORCH.parseMaterial());
         ItemMeta meta = jammer.getItemMeta();
 
         if (meta != null) {

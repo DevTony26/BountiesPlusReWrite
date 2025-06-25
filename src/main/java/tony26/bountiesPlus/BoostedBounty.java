@@ -32,20 +32,28 @@ public class BoostedBounty {
     private BukkitRunnable boostTask;
     private int taskId = -1;
 
-    public BoostedBounty(BountiesPlus plugin) {
+    /**
+     * Constructs the BoostedBounty manager
+     * // note: Initializes boosted bounty system and starts the boost cycle
+     */
+    public BoostedBounty(BountiesPlus plugin, List<String> warnings) {
         this.plugin = plugin;
-        loadConfig();
+        loadConfig(warnings);
         startBoostCycle();
     }
 
-    private void loadConfig() {
+    /**
+     * Loads boosted bounty configuration from config.yml
+     * // note: Initializes boost settings and collects warnings for missing or invalid configurations
+     */
+    private void loadConfig(List<String> warnings) {
         FileConfiguration config = plugin.getConfig();
         boostInterval = Math.max(1, config.getInt("boosted-bounties.boost-interval", 30));
         multiplierChances = new LinkedHashMap<>();
 
         ConfigurationSection multiplierSection = config.getConfigurationSection("boosted-bounties.multiplier-chances");
         if (multiplierSection == null) {
-            plugin.getLogger().warning("Multiplier chances not found, using default: 2x (50%), 3x (30%), 5x (20%)");
+            warnings.add("Boosted bounty multiplier chances not found, using default: 2x (50%), 3x (30%), 5x (20%)");
             multiplierChances.put(2.0, 50.0);
             multiplierChances.put(3.0, 30.0);
             multiplierChances.put(5.0, 20.0);
@@ -55,12 +63,12 @@ public class BoostedBounty {
                     double multiplier = Double.parseDouble(key);
                     double chance = multiplierSection.getDouble(key);
                     if (chance < 0 || multiplier <= 1) {
-                        plugin.getLogger().warning("Invalid multiplier or chance: " + key);
+                        warnings.add("Invalid boosted bounty multiplier or chance: " + key);
                         continue;
                     }
                     multiplierChances.put(multiplier, chance);
                 } catch (NumberFormatException e) {
-                    plugin.getLogger().warning("Invalid multiplier format: " + key);
+                    warnings.add("Invalid boosted bounty multiplier format: " + key);
                 }
             }
         }
@@ -74,7 +82,7 @@ public class BoostedBounty {
 
         // Check if boss bars are available in this version
         if (bossbarEnabled && !VersionUtils.isPost19()) {
-            plugin.getLogger().info("Boss bars are not supported in this Minecraft version (" + VersionUtils.getVersionString() + "), disabling boss bar feature.");
+            warnings.add("Boss bars not supported in Minecraft " + VersionUtils.getVersionString() + ", disabling boosted bounty boss bar feature.");
             bossbarEnabled = false;
         }
     }
@@ -328,7 +336,7 @@ public class BoostedBounty {
      * Reloads boosted bounty configuration
      * // note: Updates settings from config.yml
      */
-    public void reload() {
-        loadConfig();
+    public void reload(List<String> warnings) {
+        loadConfig(warnings);
     }
 }

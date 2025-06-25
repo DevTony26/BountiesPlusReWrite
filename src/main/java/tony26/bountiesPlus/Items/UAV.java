@@ -16,6 +16,7 @@ import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import tony26.bountiesPlus.BountiesPlus;
+import tony26.bountiesPlus.utils.EventManager;
 import tony26.bountiesPlus.utils.VersionUtils;
 import java.util.*;
 
@@ -39,12 +40,16 @@ public class UAV implements Listener {
     private String targetFoundMessage;
     private String effectExpiredMessage;
 
-    public UAV(BountiesPlus plugin) {
+    /**
+     * Initializes the UAV system
+     * // note: Sets up configuration and registers listener if glowing effect is supported
+     */
+    public UAV(BountiesPlus plugin, EventManager eventManager) {
         this.plugin = plugin;
         loadConfiguration();
 
         if (VersionUtils.supportsGlowingEffect()) {
-            plugin.getServer().getPluginManager().registerEvents(this, plugin);
+            eventManager.register(this);
         } else {
             plugin.getLogger().info("UAV disabled - requires Minecraft 1.9+ for glow effect");
         }

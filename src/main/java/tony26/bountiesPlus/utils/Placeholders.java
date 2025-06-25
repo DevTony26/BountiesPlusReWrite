@@ -18,6 +18,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
+
 /**
  * Handles placeholder registration and application for BountiesPlus
  * // note: Registers and processes placeholders for dynamic data in GUIs and messages
@@ -108,28 +109,42 @@ public class Placeholders extends PlaceholderExpansion {
     }
 
     /**
-     * Handles placeholder requests for PlaceholderAPI // note: Provides custom placeholders for BountiesPlus
+     * Handles placeholder requests for PlaceholderAPI
+     * // note: Provides custom placeholders for BountiesPlus
      */
     @Override
     public String onPlaceholderRequest(Player player, String identifier) {
-        String processingMsg = "Processing placeholder: identifier=" + identifier + ", player=" + (player != null ? player.getName() : "null");
-        debugLogCounts.computeIfAbsent(processingMsg, k -> new AtomicLong()).incrementAndGet();
-
         if (identifier.equalsIgnoreCase("prefix")) {
             return ChatColor.translateAlternateColorCodes('&', plugin.getMessagesConfig().getString("prefix", "&4&lBounties &7&l» &7"));
         }
 
-        if (player == null) {
-            String warningMsg = "No player provided for placeholder: " + identifier;
-            debugLogCounts.computeIfAbsent(warningMsg, k -> new AtomicLong()).incrementAndGet();
-            return "";
-        }
-
-        PlaceholderContext context = contextMap.getOrDefault(player.getUniqueId(), null);
+        PlaceholderContext context = player != null ? contextMap.getOrDefault(player.getUniqueId(), null) : null;
         Bounty bounty = context != null && context.getTargetUUID() != null ? plugin.getBountyManager().getBounty(context.getTargetUUID()) : null;
         java.text.NumberFormat numberFormat = java.text.NumberFormat.getNumberInstance(java.util.Locale.US);
+        boolean useXpLevels = plugin.getConfig().getBoolean("use-xp-levels", false);
+        String anonymousSponsor = ChatColor.translateAlternateColorCodes('&', plugin.getConfig().getString("custom-placeholders.anonymous-sponsor", "&k|||||||"));
 
         switch (identifier.toLowerCase()) {
+            case "target":
+                if (context != null && context.getTargetUUID() != null) {
+                    OfflinePlayer targetPlayer = Bukkit.getOfflinePlayer(context.getTargetUUID());
+                    String name = targetPlayer.getName() != null ? targetPlayer.getName() : "Unknown";
+                    return name;
+                }
+                String fallback = plugin.getConfig().getString("custom-placeholders.bounty-target-fallback", "None");
+                return ChatColor.translateAlternateColorCodes('&', Placeholders.apply(fallback, context));
+            case "bounty_count":
+                if (context != null && context.getTargetUUID() != null) {
+                    return numberFormat.format(plugin.getBountyManager().getBountiesOnTarget(context.getTargetUUID()).size());
+                }
+                return "0";
+            case "online_status":
+                if (context != null && context.getTargetUUID() != null) {
+                    Player targetPlayer = Bukkit.getPlayer(context.getTargetUUID());
+                    String status = context.getOnlineStatus() != null ? context.getOnlineStatus() : (targetPlayer != null && targetPlayer.isOnline() ? "&aOnline" : "&cOffline");
+                    return status;
+                }
+                return "";
             case "claimed":
             case "survived":
             case "totalmoneyearned":
@@ -183,32 +198,16 @@ public class Placeholders extends PlaceholderExpansion {
                 return player.getDisplayName();
             case "player_level":
                 return numberFormat.format(player.getLevel());
+            case "player_exp":
+                return useXpLevels ? numberFormat.format(player.getLevel()) : numberFormat.format(player.getTotalExperience());
             case "player_x":
                 return numberFormat.format(player.getLocation().getBlockX());
             case "player_y":
                 return numberFormat.format(player.getLocation().getBlockY());
             case "player_z":
                 return numberFormat.format(player.getLocation().getBlockZ());
-            case "target":
-                if (context != null && context.getTargetUUID() != null) {
-                    Player targetPlayer = Bukkit.getPlayer(context.getTargetUUID());
-                    OfflinePlayer offlineTarget = Bukkit.getOfflinePlayer(context.getTargetUUID());
-                    String name = targetPlayer != null ? targetPlayer.getName() : (offlineTarget.getName() != null ? offlineTarget.getName() : "Unknown");
-                    String resolvedMsg = "Resolved target for " + name;
-                    debugLogCounts.computeIfAbsent(resolvedMsg, k -> new AtomicLong()).incrementAndGet();
-                    return name;
-                }
-                String fallback = plugin.getConfig().getString("custom-placeholders.bounty-target-fallback", "None");
-                return ChatColor.translateAlternateColorCodes('&', Placeholders.apply(fallback, context));
-            case "online_status":
-                if (context != null && context.getTargetUUID() != null) {
-                    Player targetPlayer = Bukkit.getPlayer(context.getTargetUUID());
-                    String status = targetPlayer != null && targetPlayer.isOnline() ? "&aOnline" : "&cOffline";
-                    String resolvedMsg = "Resolved online_status: " + status;
-                    debugLogCounts.computeIfAbsent(resolvedMsg, k -> new AtomicLong()).incrementAndGet();
-                    return status;
-                }
-                return "";
+            case "player_name":
+                return player.getName();
             case "amount":
             case "cost":
                 if (context != null && context.getBountyAmount() != null) {
@@ -230,10 +229,17 @@ public class Placeholders extends PlaceholderExpansion {
                 return "";
             case "sponsor":
                 if (context != null && context.getSetterUUID() != null) {
+                    Bounty targetBounty = plugin.getBountyManager().getBounty(context.getTargetUUID());
+                    if (targetBounty != null) {
+                        Optional<Bounty.Sponsor> sponsor = targetBounty.getSponsors().stream()
+                                .filter(s -> s.getPlayerUUID().equals(context.getSetterUUID()))
+                                .findFirst();
+                        if (sponsor.isPresent() && sponsor.get().isAnonymous()) {
+                            return anonymousSponsor;
+                        }
+                    }
                     OfflinePlayer setter = Bukkit.getOfflinePlayer(context.getSetterUUID());
                     String name = setter.getName() != null ? setter.getName() : "Unknown";
-                    String resolvedMsg = "Resolved sponsor: " + name;
-                    debugLogCounts.computeIfAbsent(resolvedMsg, k -> new AtomicLong()).incrementAndGet();
                     return name;
                 }
                 return "";
@@ -272,8 +278,6 @@ public class Placeholders extends PlaceholderExpansion {
                 return context != null && context.getDeathTime() != null ? context.getDeathTime() : "";
             case "sponsor_list":
                 return context != null && context.getSetterList() != null ? context.getSetterList() : "";
-            case "bounty_count":
-                return context != null && context.getBountyCount() != null ? numberFormat.format(context.getBountyCount()) : "";
             case "money_value":
                 if (context != null && context.getMoneyValue() != null) {
                     return formatMoneyWithCommas(context.getMoneyValue());
@@ -281,13 +285,15 @@ public class Placeholders extends PlaceholderExpansion {
                 return "";
             case "exp_value":
             case "total_exp":
+                if (context != null && context.getExpValue() != null) {
+                    return useXpLevels ? numberFormat.format(context.getExpValue()) + " levels" : numberFormat.format(context.getExpValue()) + " XP";
+                }
+                return "0";
             case "levels":
                 if (context != null && context.getExpValue() != null) {
-                    return identifier.equalsIgnoreCase("exp_value") || identifier.equalsIgnoreCase("total_exp") ?
-                            numberFormat.format(context.getExpValue()) + " XP" :
-                            numberFormat.format(context.getExpValue());
+                    return numberFormat.format(context.getExpValue());
                 }
-                return "";
+                return "0";
             case "duration":
                 return context != null && context.getTimeValue() != null ? context.getTimeValue() : "";
             case "item_value":
@@ -328,7 +334,7 @@ public class Placeholders extends PlaceholderExpansion {
             case "sponsors":
                 if (bounty != null) {
                     List<String> sponsorNames = bounty.getSponsors().stream()
-                            .map(sponsor -> sponsor.isAnonymous() ? "&k|||||||" : Bukkit.getOfflinePlayer(sponsor.getPlayerUUID()).getName())
+                            .map(sponsor -> sponsor.isAnonymous() ? anonymousSponsor : Bukkit.getOfflinePlayer(sponsor.getPlayerUUID()).getName())
                             .collect(Collectors.toList());
                     return sponsorNames.isEmpty() ? "None" : String.join(", ", sponsorNames);
                 }
@@ -353,7 +359,7 @@ public class Placeholders extends PlaceholderExpansion {
                             identifier.equalsIgnoreCase("top5_sponsors_commas") ? 5 : 10;
                     List<Bounty.Sponsor> topSponsors = bounty.getTopSponsors(limit);
                     List<String> enemies = topSponsors.stream()
-                            .map(sponsor -> sponsor.isAnonymous() ? "&k|||||||" : Bukkit.getOfflinePlayer(sponsor.getPlayerUUID()).getName())
+                            .map(sponsor -> sponsor.isAnonymous() ? anonymousSponsor : Bukkit.getOfflinePlayer(sponsor.getPlayerUUID()).getName())
                             .collect(Collectors.toList());
                     return enemies.isEmpty() ? "None" : String.join(", ", enemies);
                 }
@@ -373,6 +379,32 @@ public class Placeholders extends PlaceholderExpansion {
                             String.format("%.1f", plugin.getBoostedBounty().getCurrentBoostMultiplier(context.getTargetUUID())) : "1.0";
                 }
                 return "1.0";
+            case "boost_prefix":
+                if (plugin.getConfig().getBoolean("tablist-modification.enabled", false) && plugin.getBountyManager().hasBounty(player.getUniqueId())) {
+                    String format = plugin.getConfig().getString("tablist-modification.format", "&c[Bounty] %player%");
+                    return Placeholders.apply(format, context);
+                }
+                return "";
+            case "next_frenzy_info":
+                if (plugin.getFrenzy() != null) {
+                    long timeUntilNext = plugin.getFrenzy().getTimeUntilNextFrenzy();
+                    if (timeUntilNext > 0) {
+                        return "&c→ &fIn " + TimeFormatter.formatTimeRemaining(timeUntilNext);
+                    } else {
+                        return "&c→ &cFrenzy incoming!";
+                    }
+                }
+                return "&7→ &8Frenzy disabled";
+            case "next_boost_info":
+                if (plugin.getBoostedBounty() != null) {
+                    long timeUntilNext = plugin.getBoostedBounty().getTimeUntilNextBoost();
+                    if (timeUntilNext > 0) {
+                        return "&b→ &fIn " + TimeFormatter.formatTimeRemaining(timeUntilNext);
+                    } else {
+                        return "&b→ &aBoost incoming!";
+                    }
+                }
+                return "&7→ &8Boost disabled";
             case "error":
                 return context != null && context.getError() != null ? context.getError() : "";
             case "item":
@@ -394,11 +426,6 @@ public class Placeholders extends PlaceholderExpansion {
                 return "";
             case "input":
                 return context != null && context.getInput() != null ? context.getInput() : "";
-            case "min_amount":
-                if (context != null && context.getBountyAmount() != null) {
-                    return formatMoneyWithCommas(context.getBountyAmount());
-                }
-                return "";
             case "top3_sponsors_numbered":
             case "top5_sponsors_numbered":
             case "top10_sponsors_numbered":
@@ -409,7 +436,7 @@ public class Placeholders extends PlaceholderExpansion {
                     StringBuilder sponsors = new StringBuilder();
                     for (int i = 0; i < topSponsors.size(); i++) {
                         Bounty.Sponsor sponsor = topSponsors.get(i);
-                        String name = sponsor.isAnonymous() ? "&k|||||||" : Bukkit.getOfflinePlayer(sponsor.getPlayerUUID()).getName();
+                        String name = sponsor.isAnonymous() ? anonymousSponsor : Bukkit.getOfflinePlayer(sponsor.getPlayerUUID()).getName();
                         sponsors.append(i + 1).append(". ").append(name);
                         if (i < topSponsors.size() - 1) {
                             sponsors.append(", ");
@@ -448,8 +475,7 @@ public class Placeholders extends PlaceholderExpansion {
                 return player.getName();
         }
 
-        String warningMsg = "Unknown placeholder: " + identifier;
-        debugLogCounts.computeIfAbsent(warningMsg, k -> new AtomicLong()).incrementAndGet();
+        plugin.getDebugManager().logDebug("[DEBUG] Unknown placeholder: " + identifier);
         return null;
     }
 }

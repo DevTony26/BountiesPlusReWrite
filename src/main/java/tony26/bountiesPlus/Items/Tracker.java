@@ -16,6 +16,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import tony26.bountiesPlus.BountiesPlus;
+import tony26.bountiesPlus.utils.EventManager;
 import tony26.bountiesPlus.utils.VersionUtils;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -50,10 +51,14 @@ public class Tracker implements Listener {
     private String trackingExpiredMessage;
     private String jammerBlockedMessage;
 
-    public Tracker(BountiesPlus plugin) {
+    /**
+     * Initializes the Tracker system
+     * // note: Sets up configuration and registers listener
+     */
+    public Tracker(BountiesPlus plugin, EventManager eventManager) {
         this.plugin = plugin;
         loadConfiguration();
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        eventManager.register(this);
     }
 
     private void loadConfiguration() {

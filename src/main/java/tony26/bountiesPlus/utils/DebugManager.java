@@ -14,6 +14,7 @@ public class DebugManager {
     private final BountiesPlus plugin;
     private final boolean debugEnabled;
     private final ConcurrentMap<String, AtomicLong> debugLogCounts;
+    private final ConcurrentMap<String, String> debugLogFailures; // Tracks failure messages
     private BukkitTask debugLoggingTask;
 
     /**
@@ -23,6 +24,7 @@ public class DebugManager {
         this.plugin = plugin;
         this.debugEnabled = plugin.getConfig().getBoolean("debug-enabled", false);
         this.debugLogCounts = new ConcurrentHashMap<>();
+        this.debugLogFailures = new ConcurrentHashMap<>();
         this.debugLoggingTask = null;
         if (debugEnabled) {
             startDebugLoggingTask();
@@ -37,17 +39,15 @@ public class DebugManager {
      */
     public void logDebug(String message) {
         if (debugEnabled) {
-            plugin.getLogger().info("[DEBUG] " + message);
+            plugin.getLogger().info("" + message);
         }
     }
 
     /**
-     * Logs a warning message if debug is enabled // note: Outputs warning directly to console without buffering
+     * Logs a warning message // note: Outputs warning directly to console without buffering
      */
     public void logWarning(String message) {
-        if (debugEnabled) {
-            plugin.getLogger().warning("[DEBUG] " + message);
-        }
+        plugin.getLogger().warning(message);
     }
 
     /**
@@ -60,22 +60,40 @@ public class DebugManager {
     }
 
     /**
-     * Starts a task to periodically log buffered debug messages // note: Summarizes buffered debug logs every 30 seconds
+     * Buffers a failure debug message // note: Stores failure message for summary output
+     */
+    public void bufferFailure(String key, String message) {
+        if (debugEnabled) {
+            debugLogFailures.put(key, message);
+        }
+    }
+
+    /**
+     * Starts a task to periodically log buffered debug messages // note: Summarizes buffered debug logs and failures every 30 seconds
      */
     private void startDebugLoggingTask() {
         if (debugLoggingTask != null) {
             debugLoggingTask.cancel();
         }
         debugLoggingTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            if (debugLogCounts.isEmpty()) {
+            if (debugLogCounts.isEmpty() && debugLogFailures.isEmpty()) {
                 return;
             }
             StringBuilder summary = new StringBuilder("Debug summary (past 30 seconds):\n");
+            // Summarize successful item creations
             debugLogCounts.forEach((message, count) -> {
                 summary.append(String.format("- %s: %d times\n", message, count.get()));
             });
+            // Summarize failures
+            if (!debugLogFailures.isEmpty()) {
+                summary.append("Failures:\n");
+                debugLogFailures.forEach((key, message) -> {
+                    summary.append(String.format("- %s\n", message));
+                });
+            }
             plugin.getLogger().info(summary.toString());
             debugLogCounts.clear();
+            debugLogFailures.clear();
         }, 600L, 600L); // 30 seconds (600 ticks)
     }
 
@@ -87,6 +105,7 @@ public class DebugManager {
             debugLoggingTask.cancel();
             debugLoggingTask = null;
             debugLogCounts.clear();
+            debugLogFailures.clear();
         }
     }
 }

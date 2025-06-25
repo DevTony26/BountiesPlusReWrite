@@ -1,0 +1,90 @@
+# Bounty Team Checks Configuration
+#
+# This file defines checks to identify if players are in the same team, party, faction, or gang.
+# Use these checks to prevent actions like placing or claiming bounties within the same group.
+#
+# Check types:
+# - scoreboard: Checks scoreboard team membership (e.g., same team name).
+# - permission: Verifies a shared permission node (e.g., team.<name>.member).
+# - command: Runs a command and uses a regex to parse group info from the output.
+#
+# Customize commands, regex patterns, and nodes based on your plugins.
+#
+# Note: Command-based checks require custom command output parsing, which is not fully implemented
+# in the provided BountyTeamCheck class. Implement executeCommandAndParse for full functionality.
+
+group-checks:
+  # Team Plugins
+  simpleteams-scoreboard:
+    type: scoreboard
+    team-prefix: "team_"
+    error-message: "&cYou can't target %target% on your team!"
+    # Checks scoreboard teams with a 'team_' prefix, common for SimpleTeams
+  betterteams-scoreboard:
+    type: scoreboard
+    team-prefix: "bt_"
+    error-message: "&cYou can't target %target% on your team!"
+    # Checks scoreboard teams with a 'bt_' prefix, used by BetterTeams
+  guilds-command:
+    type: command
+    command: "guild info %player%"
+    regex: "Guild: (.*)"
+    error-message: "&cYou can't target %target% in your guild!"
+    # Parses guild name from /guild info command output
+
+  # Party Plugins
+  partygamesx-command:
+    type: command
+    command: "partyx info %player%"
+    regex: "Party: (.*)"
+    error-message: "&cYou can't target %target% in your party!"
+    # Parses party name from /partyx info command output, based on Party Games X GUI setup
+  minigameslib-scoreboard:
+    type: scoreboard
+    team-prefix: "mglib_"
+    error-message: "&cYou can't target %target% in your party!"
+    # Checks scoreboard teams with a 'mglib_' prefix, used by MinigamesLib for team-based minigames
+  minigameplugin-command:
+    type: command
+    command: "mp info %player%"
+    regex: "Team: (.*)"
+    error-message: "&cYou can't target %target% in your team!"
+    # Parses team name from /mp info command output, reflecting Minigame Plugin's command-driven events
+
+  # Faction Plugins
+  improvedfactions-command:
+    type: command
+    command: "f who %player%"
+    regex: "Faction: (.*)"
+    error-message: "&cYou can't target %target% in your faction!"
+    # Parses faction name from /f who command output, used by Improved Factions
+  factions-command:
+    type: command
+    command: "f who %player%"
+    regex: "Faction: (.*)"
+    error-message: "&cYou can't target %target% in your faction!"
+    # Parses faction name from /f who command output, used by Factions/SaberFactions
+  simplefactions-scoreboard:
+    type: scoreboard
+    team-prefix: "sfac_"
+    error-message: "&cYou can't target %target% in your faction!"
+    # Checks scoreboard teams with a 'sfac_' prefix, used by Simple Factions
+
+  # Gang Plugins
+  mychunk-ganglands-command:
+    type: command
+    command: "gang info %player%"
+    regex: "Gang: (.*)"
+    error-message: "&cYou can't target %target% in your gang!"
+    # Parses gang name from /gang info command output, used by MyChunk + GangLands
+  mygangs-permission:
+    type: permission
+    node: "gang.%gang_id%.member"
+    error-message: "&cYou can't target %target% in your gang!"
+    # Checks if players share a gang-specific permission, used by MyGangs
+  gangelite-command:
+    type: command
+    command: "gangelite info %player%"
+    regex: "Gang: (.*)"
+    error-message: "&cYou can't target %target% in your gang!"
+    # Parses gang name from /gangelite info command output, used by GangElite

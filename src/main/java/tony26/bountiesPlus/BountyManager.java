@@ -21,9 +21,13 @@ public class BountyManager {
     private final Map<UUID, Double> manualXpBoosts = new HashMap<>();
     private final Map<UUID, Long> manualBoostExpireTimes = new HashMap<>();
 
-    public BountyManager(BountiesPlus plugin) {
+    /**
+     * Constructs the BountyManager
+     * // note: Initializes bounty management and loads bounties from storage
+     */
+    public BountyManager(BountiesPlus plugin, List<String> warnings) {
         this.plugin = plugin;
-        loadBounties();
+        loadBounties(warnings);
         startExpiryCheck();
     }
 
@@ -117,6 +121,7 @@ public class BountyManager {
 
     /**
      * Checks if a player has an active manual boost
+     * // note: Verifies if a manual boost is active for a player
      */
     public boolean hasActiveManualBoost(UUID targetUUID) {
         Bounty bounty = bounties.get(targetUUID);
@@ -125,6 +130,9 @@ public class BountyManager {
         }
         long currentTime = System.currentTimeMillis();
         FileConfiguration config = plugin.getBountiesConfig();
+        if (config == null) {
+            return false;
+        }
         for (Bounty.Sponsor sponsor : bounty.getSponsors()) {
             long expireTime = config.getLong("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".expire_time", -1);
             if (expireTime > 0 && currentTime < expireTime) {
@@ -166,7 +174,7 @@ public class BountyManager {
      * Loads bounties from configuration or MySQL
      * // note: Populates the bounties map from storage
      */
-    private void loadBounties() {
+    private void loadBounties(List<String> warnings) {
         bounties.clear();
         if (plugin.getMySQL().isEnabled()) {
             plugin.getMySQL().loadBountiesAsync().thenAccept(loadedBounties -> {
@@ -186,12 +194,12 @@ public class BountyManager {
                     plugin.getLogger().info("Loaded " + bounties.size() + " bounties from MySQL.");
                 });
             }).exceptionally(e -> {
-                plugin.getLogger().warning("[DEBUG] MySQL Error: Failed to load bounties asynchronously: " + e.getMessage());
-                loadBountiesFromYAML();
+                warnings.add("Failed to load bounties from MySQL: " + e.getMessage());
+                loadBountiesFromYAML(warnings);
                 return null;
             });
         } else {
-            loadBountiesFromYAML();
+            loadBountiesFromYAML(warnings);
         }
     }
 
@@ -199,8 +207,12 @@ public class BountyManager {
      * Loads bounties from YAML configuration
      * // note: Fallback method to load bounties from BountyStorage.yml
      */
-    private void loadBountiesFromYAML() {
+    private void loadBountiesFromYAML(List<String> warnings) {
         FileConfiguration config = plugin.getBountiesConfig();
+        if (config == null) {
+            warnings.add("BountyStorage.yml not loaded, cannot load bounties!");
+            return;
+        }
         if (!config.isConfigurationSection("bounties")) {
             return;
         }
@@ -209,7 +221,7 @@ public class BountyManager {
             try {
                 targetUUID = UUID.fromString(targetUUIDStr);
             } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("Invalid UUID in BountyStorage.yml: " + targetUUIDStr);
+                warnings.add("Invalid UUID in BountyStorage.yml: " + targetUUIDStr);
                 continue;
             }
             Bounty bounty = new Bounty(plugin, targetUUID);
@@ -218,7 +230,7 @@ public class BountyManager {
                 try {
                     setterUUID = UUID.fromString(setterUUIDStr);
                 } catch (IllegalArgumentException e) {
-                    plugin.getLogger().warning("Invalid setter UUID in BountyStorage.yml: " + setterUUIDStr);
+                    warnings.add("Invalid setter UUID in BountyStorage.yml: " + setterUUIDStr);
                     continue;
                 }
                 double amount = config.getDouble("bounties." + targetUUIDStr + "." + setterUUIDStr + ".amount", 0.0);
@@ -238,7 +250,7 @@ public class BountyManager {
                             int itemAmount = Integer.parseInt(parts[1]);
                             items.add(new ItemStack(material, itemAmount));
                         } catch (IllegalArgumentException e) {
-                            plugin.getLogger().warning("Invalid item in BountyStorage.yml: " + itemStr);
+                            warnings.add("Invalid item in BountyStorage.yml: " + itemStr);
                         }
                     }
                 }
@@ -308,9 +320,10 @@ public class BountyManager {
      */
     public void addAnonymousBounty(UUID target, UUID setter, double amount, int xp, int durationMinutes, List<ItemStack> items) {
         DebugManager debugManager = plugin.getDebugManager();
+        boolean useXpLevels = plugin.getConfig().getBoolean("use-xp-levels", false);
         debugManager.logDebug("[BountyManager] Adding anonymous bounty for target: " + target +
-                ", setter: " + setter + ", amount: $" + amount + ", items: " + items.size() +
-                ", xp: " + xp + ", duration: " + durationMinutes + " minutes");
+                ", setter: " + setter + ", amount: $" + amount + ", " + (useXpLevels ? "levels: " : "xp: ") + xp +
+                ", duration: " + durationMinutes + " minutes, items: " + items.size());
         Bounty bounty = bounties.computeIfAbsent(target, k -> new Bounty(plugin, target));
         bounty.addContribution(setter, amount, xp, durationMinutes, items, true, !bounties.containsKey(target));
         if (plugin.getMySQL().isEnabled()) {
@@ -539,6 +552,10 @@ public class BountyManager {
      */
     private void saveToYAML(UUID setter, UUID target, double amount, int xp, int durationMinutes, boolean isAnonymous, long expireTime, List<ItemStack> items) {
         FileConfiguration config = plugin.getBountiesConfig();
+        if (config == null) {
+            plugin.getLogger().warning("BountyStorage.yml not loaded, cannot save bounty for " + target);
+            return;
+        }
         long setTime = System.currentTimeMillis();
         String path = "bounties." + target + "." + setter;
         config.set(path + ".amount", amount);
@@ -562,6 +579,10 @@ public class BountyManager {
      */
     private void removeFromYAML(UUID setter, UUID target) {
         FileConfiguration config = plugin.getBountiesConfig();
+        if (config == null) {
+            plugin.getLogger().warning("BountyStorage.yml not loaded, cannot remove bounty for " + target);
+            return;
+        }
         config.set("bounties." + target + "." + setter, null);
         config.set("anonymous-bounties." + target + "." + setter, null);
         if (config.getConfigurationSection("bounties." + target) == null || config.getConfigurationSection("bounties." + target).getKeys(false).isEmpty()) {
@@ -577,6 +598,10 @@ public class BountyManager {
      */
     private void clearFromYAML(UUID target) {
         FileConfiguration config = plugin.getBountiesConfig();
+        if (config == null) {
+            plugin.getLogger().warning("BountyStorage.yml not loaded, cannot clear bounties for " + target);
+            return;
+        }
         config.set("bounties." + target, null);
         config.set("anonymous-bounties." + target, null);
         plugin.saveEverything();
@@ -588,6 +613,10 @@ public class BountyManager {
      */
     private void saveManualBoostToYAML(UUID targetUUID, double multiplier, long expireTime) {
         FileConfiguration config = plugin.getBountiesConfig();
+        if (config == null) {
+            plugin.getLogger().warning("BountyStorage.yml not loaded, cannot save manual boost for " + targetUUID);
+            return;
+        }
         for (Bounty.Sponsor sponsor : bounties.getOrDefault(targetUUID, new Bounty(plugin, targetUUID)).getSponsors()) {
             config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".multiplier", multiplier);
             config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".expire_time", expireTime);
@@ -601,6 +630,10 @@ public class BountyManager {
      */
     private void removeManualBoostFromYAML(UUID targetUUID) {
         FileConfiguration config = plugin.getBountiesConfig();
+        if (config == null) {
+            plugin.getLogger().warning("BountyStorage.yml not loaded, cannot remove manual boost for " + targetUUID);
+            return;
+        }
         for (Bounty.Sponsor sponsor : bounties.getOrDefault(targetUUID, new Bounty(plugin, targetUUID)).getSponsors()) {
             config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".multiplier", 1.0);
             config.set("bounties." + targetUUID + "." + sponsor.getPlayerUUID() + ".expire_time", -1);
@@ -612,8 +645,8 @@ public class BountyManager {
      * Reloads bounties from storage
      * // note: Refreshes the bounties map
      */
-    public void reload() {
-        loadBounties();
+    public void reload(List<String> warnings) {
+        loadBounties(warnings);
     }
     /**
      * Cleans up the bounty manager

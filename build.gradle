@@ -1,3 +1,4 @@
+// file: C:/Users/Anthony/IdeaProjects/BountiesPlusRewrite/build.gradle
 plugins {
     id 'java'
     id 'com.github.johnrengelman.shadow' version '8.1.1'
@@ -11,6 +12,15 @@ java {
     targetCompatibility = JavaVersion.VERSION_1_8
 }
 
+sourceSets {
+    main {
+        resources {
+            srcDirs = ['src/main/resources']
+            includes = ['**/*.yml']
+        }
+    }
+}
+
 repositories {
     maven { url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/' }
     maven { url = 'https://repo.papermc.io/repository/maven-public/' }
@@ -20,13 +30,17 @@ repositories {
         name = 'placeholderapi'
         url = 'https://repo.extendedclip.com/releases/'
     }
+    maven {
+        name = 'CodeMC'
+        url = uri('https://repo.codemc.io/repository/maven-public/')
+    }
 }
 
 dependencies {
     // Spigot API for 1.8.8
     compileOnly 'org.spigotmc:spigot-api:1.8.8-R0.1-SNAPSHOT'
-    // Item-NBT-API for cross-version NBT handling
-    implementation files('libs/item-nbt-api-plugin-2.15.0.jar')
+    // Item-NBT-API (API only)
+    compileOnly 'de.tr7zw:item-nbt-api-plugin:2.15.0'
     // ProtocolLib for cross-version packet handling
     implementation files('libs/ProtocolLib.jar')
     // XSeries for cross-version material handling
@@ -35,6 +49,8 @@ dependencies {
     compileOnly 'com.github.MilkBowl:VaultAPI:1.7'
     // PlaceholderAPI
     compileOnly 'me.clip:placeholderapi:2.11.6'
+    // ShopGUI+
+    compileOnly 'com.github.brcdev-minecraft:shopgui-api:3.0.0'
     // MySQL Connector/J
     implementation 'mysql:mysql-connector-java:8.0.33'
 }
@@ -46,20 +62,19 @@ tasks.withType(JavaCompile) {
 
 shadowJar {
     relocate 'com.cryptomorin.xseries', 'tony26.bountiesPlus.lib.xseries'
-    relocate 'de.tr7zw.nbtapi', 'tony26.bountiesPlus.lib.nbtapi'
     relocate 'com.comphenix.protocol', 'tony26.bountiesPlus.lib.protocol'
-    relocate 'com.mysql', 'tony26.bountiesPlus.lib.mysql' // Relocate MySQL to avoid conflicts
+    relocate 'com.mysql', 'tony26.bountiesPlus.lib.mysql'
     minimize()
     archiveFileName = 'BountiesPlus.jar'
 }
 
 task deleteBountiesPlusFolder(type: Delete) {
-    delete "C:/Users/Anthony/Desktop/DevTony Test Server/plugins/BountiesPlus"
+    delete 'C:/Users/Anthony/Desktop/DevTony Test Server/plugins/BountiesPlus'
 }
 
 task copyJarToPlugins(type: Copy) {
     from shadowJar
-    into "C:/Users/Anthony/Desktop/DevTony Test Server/plugins"
+    into 'C:/Users/Anthony/Desktop/DevTony Test Server/plugins'
     dependsOn deleteBountiesPlusFolder
     dependsOn shadowJar
 }

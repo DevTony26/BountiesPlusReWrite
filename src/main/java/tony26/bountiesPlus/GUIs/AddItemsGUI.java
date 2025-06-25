@@ -1,10 +1,14 @@
 package tony26.bountiesPlus.GUIs;
 
+import net.md_5.bungee.api.chat.BaseComponent;
 import org.bukkit.Bukkit;
+
+import java.io.File;
 import java.util.Arrays;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -18,10 +22,13 @@ import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.ItemFlag;
 import tony26.bountiesPlus.BountiesPlus;
 import tony26.bountiesPlus.BountyCreationSession;
+import tony26.bountiesPlus.utils.EventManager;
 import tony26.bountiesPlus.utils.*;
+import net.md_5.bungee.api.chat.TextComponent;
+import me.clip.placeholderapi.PlaceholderAPI;
 
 import java.util.stream.Collectors;
-import org.bukkit.Sound;
+
 import tony26.bountiesPlus.wrappers.VersionWrapper;
 import tony26.bountiesPlus.wrappers.VersionWrapperFactory;
 
@@ -46,45 +53,54 @@ public class AddItemsGUI implements Listener {
     private final Inventory inventory;
 
     /**
-     * Constructs the AddItemsGUI for a player // note: Initializes GUI, loads blacklist, and registers listeners
+     * Constructs the AddItemsGUI for a player
+     * // note: Initializes GUI, loads blacklist, and registers listeners
      */
-    public AddItemsGUI(Player player) {
+    public AddItemsGUI(Player player, EventManager eventManager) {
         this.player = player;
         this.inventory = Bukkit.createInventory(null, 54, GUI_TITLE);
+        FileConfiguration config = BountiesPlus.getInstance().getAddItemsGUIConfig();
+        File configFile = new File(BountiesPlus.getInstance().getDataFolder(), "GUIs/AddItemsGUI.yml");
+
+        // Verify configuration integrity
+        if (!configFile.exists() || config.getConfigurationSection("buttons") == null) {
+            BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - AddItemsGUI] AddItemsGUI.yml is missing or invalid, reloading default");
+            try {
+                if (configFile.exists()) configFile.delete(); // Remove invalid file
+                BountiesPlus.getInstance().saveResource("GUIs/AddItemsGUI.yml", false); // Copy default
+                config = YamlConfiguration.loadConfiguration(configFile);
+                BountiesPlus.getInstance().getDebugManager().logDebug("[DEBUG - AddItemsGUI] Reloaded default AddItemsGUI.yml");
+            } catch (IllegalArgumentException e) {
+                BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - AddItemsGUI] Failed to reload default AddItemsGUI.yml: " + e.getMessage());
+            }
+        }
 
         // Load blacklisted items from config.yml
-        FileConfiguration config = BountiesPlus.getInstance().getConfig();
+        FileConfiguration mainConfig = BountiesPlus.getInstance().getConfig();
         this.blacklistedItems = new HashSet<>();
-        List<String> blacklist = config.getStringList("blacklisted-items");
+        List<String> blacklist = mainConfig.getStringList("blacklisted-items");
         for (String materialName : blacklist) {
             try {
                 Material material = Material.valueOf(materialName.toUpperCase());
                 blacklistedItems.add(material);
             } catch (IllegalArgumentException e) {
-                BountiesPlus.getInstance().getLogger().warning("Invalid material in blacklisted-items: " + materialName);
+                BountiesPlus.getInstance().getLogger().warning("[DEBUG - AddItemsGUI] Invalid material in blacklisted-items: " + materialName);
             }
         }
 
         // Load protected slots from AddItemsGUI.yml
-        config = BountiesPlus.getInstance().getAddItemsGUIConfig();
         List<Integer> borderSlots = config.getIntegerList("border.slots");
         if (borderSlots.isEmpty()) {
             borderSlots = Arrays.asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 18, 26, 27, 35, 36, 44, 45, 46, 48, 50, 52, 53);
         }
         protectedSlots.addAll(borderSlots);
-        // Add button slots
         protectedSlots.add(config.getInt("buttons.cancel.slot", 47));
         protectedSlots.add(config.getInt("buttons.info.slot", 49));
         protectedSlots.add(config.getInt("buttons.confirm.slot", 51));
 
-        // Clean up any existing instance for this player
         cleanup(player);
-
-        // Register this new instance
         activeInstances.put(player.getUniqueId(), this);
-        BountiesPlus.getInstance().getServer().getPluginManager().registerEvents(this, BountiesPlus.getInstance());
-
-        // Initialize the GUI
+        eventManager.register(this);
         initializeGUI();
     }
 
@@ -147,7 +163,7 @@ public class AddItemsGUI implements Listener {
     private void returnItemToPlayer(Player player, ItemStack item) {
         DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
         if (item == null || item.getType() == Material.AIR) {
-            debugManager.logDebug("Attempted to return null or AIR item to " + player.getName());
+            debugManager.logDebug("[DEBUG - AddItemsGUI] Attempted to return null or AIR item to " + player.getName());
             return;
         }
         HashMap<Integer, ItemStack> overflow = player.getInventory().addItem(item.clone());
@@ -155,13 +171,13 @@ public class AddItemsGUI implements Listener {
         if (!overflow.isEmpty()) {
             for (ItemStack overflowItem : overflow.values()) {
                 player.getWorld().dropItemNaturally(player.getLocation(), overflowItem);
-                debugManager.logDebug("Dropped blacklisted item " + overflowItem.getType().name() + " x" + overflowItem.getAmount() + " for " + player.getName() + " due to full inventory");
+                debugManager.logDebug("[DEBUG - AddItemsGUI] Dropped blacklisted item " + overflowItem.getType().name() + " x" + overflowItem.getAmount() + " for " + player.getName() + " due to full inventory");
             }
             FileConfiguration messagesConfig = BountiesPlus.getInstance().getMessagesConfig();
             String inventoryFull = messagesConfig.getString("inventory-full", "&eYour inventory is full. Some items were dropped on the ground.");
             player.sendMessage(ChatColor.translateAlternateColorCodes('&', inventoryFull));
         } else {
-            debugManager.logDebug("Returned blacklisted item " + item.getType().name() + " x" + item.getAmount() + " to " + player.getName() + "'s inventory");
+            debugManager.logDebug("[DEBUG - AddItemsGUI] Returned blacklisted item " + item.getType().name() + " x" + item.getAmount() + " to " + player.getName() + "'s inventory");
         }
     }
 
@@ -230,67 +246,74 @@ public class AddItemsGUI implements Listener {
     }
 
     /**
-     * Adds border items to the GUI based on configuration // note: Populates border slots with configured material
+     * Adds border items to the GUI based on configuration
+     * // note: Populates border slots with configured material
      */
     private void addBorders() {
         FileConfiguration config = BountiesPlus.getInstance().getAddItemsGUIConfig();
         DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
-        debugManager.logDebug("Adding borders to AddItemsGUI for " + player.getName());
 
-        // Check if borders are enabled
         if (!config.getBoolean("border.enabled", true)) {
-            debugManager.logDebug("Borders disabled in AddItemsGUI.yml");
+            debugManager.logDebug("[DEBUG - AddItemsGUI] Borders disabled in AddItemsGUI.yml");
             return;
         }
 
-        // Get border configuration
         String materialName = config.getString("border.material", "WHITE_STAINED_GLASS_PANE");
         String name = config.getString("border.name", " ");
         List<String> lore = config.getStringList("border.lore");
         boolean enchantmentGlow = config.getBoolean("border.enchantment-glow", false);
         List<Integer> borderSlots = config.getIntegerList("border.slots");
 
-        // Use default slots if none configured
         if (borderSlots.isEmpty()) {
             borderSlots = Arrays.asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 18, 26, 27, 35, 36, 44, 45, 46, 48, 50, 52, 53);
-            debugManager.logDebug("Using default border slots: " + borderSlots);
         }
 
-        // Create border item with configured material
-        Material borderMaterial = VersionUtils.getMaterialSafely(materialName, "STAINED_GLASS_PANE");
-        if (!VersionUtils.isGlassPane(new ItemStack(borderMaterial))) {
-            debugManager.logWarning("Invalid border material '" + materialName + "' in AddItemsGUI.yml, using WHITE_STAINED_GLASS_PANE");
-            borderMaterial = VersionUtils.getWhiteGlassPaneMaterial();
+        ItemStack borderItem = VersionUtils.getXMaterialItemStack(materialName);
+        if (borderItem.getType() == Material.STONE && !materialName.equalsIgnoreCase("WHITE_STAINED_GLASS_PANE")) {
+            debugManager.logWarning("[DEBUG - AddItemsGUI] Invalid border material '" + materialName + "' in AddItemsGUI.yml, using WHITE_STAINED_GLASS_PANE");
+            borderItem = VersionUtils.getXMaterialItemStack("WHITE_STAINED_GLASS_PANE");
         }
 
-        ItemStack borderItem = new ItemStack(borderMaterial);
         ItemMeta borderMeta = borderItem.getItemMeta();
         if (borderMeta != null) {
-            // Set display name and lore
             borderMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', name));
             if (!lore.isEmpty()) {
                 PlaceholderContext context = PlaceholderContext.create().player(player);
                 List<String> processedLore = Placeholders.apply(lore, context);
                 borderMeta.setLore(processedLore);
             }
-
-            // Add enchantment glow if enabled
             if (enchantmentGlow) {
                 borderMeta.addEnchant(Enchantment.DURABILITY, 1, true);
                 borderMeta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
             }
-
             borderItem.setItemMeta(borderMeta);
+        } else {
+            debugManager.logWarning("[DEBUG - AddItemsGUI] Failed to get ItemMeta for border item");
         }
 
-        // Apply borders to configured slots
+        int totalItems = borderSlots.size();
+        int successfulItems = 0;
+        List<String> failures = new ArrayList<>();
+
         for (int slot : borderSlots) {
             if (slot >= 0 && slot < inventory.getSize()) {
-                inventory.setItem(slot, borderItem);
-                debugManager.logDebug("Placed border item in slot " + slot);
+                inventory.setItem(slot, borderItem.clone());
+                protectedSlots.add(slot);
+                successfulItems++;
             } else {
-                debugManager.logWarning("Invalid slot " + slot + " in AddItemsGUI.yml border configuration (must be 0-" + (inventory.getSize() - 1) + ")");
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Invalid slot " + slot + " in AddItemsGUI.yml border configuration (must be 0-" + (inventory.getSize() - 1) + ")");
+                failures.add("border-slot-" + slot + " Reason: Invalid slot " + slot);
             }
+        }
+
+        if (successfulItems == totalItems) {
+            debugManager.logDebug("[DEBUG - AddItemsGUI] All border items created");
+        } else {
+            String failureMessage = "[DEBUG - AddItemsGUI] " + successfulItems + "/" + totalItems + " border items created";
+            if (!failures.isEmpty()) {
+                failureMessage += ", failed to create: " + String.join(", ", failures);
+            }
+            debugManager.bufferFailure("AddItemsGUI_border_" + System.currentTimeMillis(), failureMessage);
         }
     }
 
@@ -333,29 +356,37 @@ public class AddItemsGUI implements Listener {
             }
 
             if (original == null || current == null) {
-                BountiesPlus.getInstance().getLogger().info("[AddItemsGUI DEBUG] Items changed - slot " + i + " has different null state");
                 return true; // One is null, other isn't
             }
 
             if (!original.isSimilar(current) || original.getAmount() != current.getAmount()) {
-                BountiesPlus.getInstance().getLogger().info("[AddItemsGUI DEBUG] Items changed - slot " + i + " has different item or amount");
                 return true; // Items are different
             }
         }
         return false; // No changes detected
     }
     /**
-     * Adds bottom row buttons to the GUI // note: Places Cancel, Info, and Confirm buttons
+     * Adds bottom row buttons to the GUI
+     * // note: Places Cancel, Info, and Confirm buttons
      */
     private void addBottomRowButtons(Inventory gui) {
         FileConfiguration config = BountiesPlus.getInstance().getAddItemsGUIConfig();
         DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
-        debugManager.logDebug("Adding bottom row buttons to AddItemsGUI for " + player.getName());
+        int totalButtons = 3;
+        int successfulButtons = 0;
+        List<String> failures = new ArrayList<>();
 
         // Cancel button
         if (config.getBoolean("buttons.cancel.enabled", true)) {
             int slot = config.getInt("buttons.cancel.slot", 47);
-            ItemStack cancelButton = VersionUtils.getXMaterialItemStack(config.getString("buttons.cancel.material", "REDSTONE"));
+            String materialName = config.getString("buttons.cancel.material", "REDSTONE");
+            ItemStack cancelButton = VersionUtils.getXMaterialItemStack(materialName);
+            String failureReason = null;
+            if (cancelButton.getType() == Material.STONE && !materialName.equalsIgnoreCase("REDSTONE")) {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Invalid material '" + materialName + "' for cancel button, using REDSTONE");
+                failureReason = "Invalid material '" + materialName + "'";
+                cancelButton = VersionUtils.getXMaterialItemStack("REDSTONE");
+            }
             ItemMeta cancelMeta = cancelButton.getItemMeta();
             if (cancelMeta != null) {
                 cancelMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', config.getString("buttons.cancel.name", "&c&lCancel")));
@@ -376,15 +407,30 @@ public class AddItemsGUI implements Listener {
                     cancelMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
                 }
                 cancelButton.setItemMeta(cancelMeta);
+            } else {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Failed to get ItemMeta for cancel button");
+                failureReason = "Failed to get ItemMeta";
             }
-            gui.setItem(slot, cancelButton);
-            debugManager.logDebug("Placed Cancel button in slot " + slot);
+            if (failureReason == null) {
+                gui.setItem(slot, cancelButton);
+                protectedSlots.add(slot);
+                successfulButtons++;
+            } else {
+                failures.add("cancel-button Reason: " + failureReason);
+            }
         }
 
         // How to use (Info) button
         if (config.getBoolean("buttons.info.enabled", true)) {
             int slot = config.getInt("buttons.info.slot", 49);
-            ItemStack howToUseButton = VersionUtils.getXMaterialItemStack(config.getString("buttons.info.material", "PAPER"));
+            String materialName = config.getString("buttons.info.material", "PAPER");
+            ItemStack howToUseButton = VersionUtils.getXMaterialItemStack(materialName);
+            String failureReason = null;
+            if (howToUseButton.getType() == Material.STONE && !materialName.equalsIgnoreCase("PAPER")) {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Invalid material '" + materialName + "' for info button, using PAPER");
+                failureReason = "Invalid material '" + materialName + "'";
+                howToUseButton = VersionUtils.getXMaterialItemStack("PAPER");
+            }
             ItemMeta howToUseMeta = howToUseButton.getItemMeta();
             if (howToUseMeta != null) {
                 howToUseMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', config.getString("buttons.info.name", "&e&lHow to Use")));
@@ -414,15 +460,30 @@ public class AddItemsGUI implements Listener {
                     howToUseMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
                 }
                 howToUseButton.setItemMeta(howToUseMeta);
+            } else {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Failed to get ItemMeta for info button");
+                failureReason = "Failed to get ItemMeta";
             }
-            gui.setItem(slot, howToUseButton);
-            debugManager.logDebug("Placed Info button in slot " + slot);
+            if (failureReason == null) {
+                gui.setItem(slot, howToUseButton);
+                protectedSlots.add(slot);
+                successfulButtons++;
+            } else {
+                failures.add("info-button Reason: " + failureReason);
+            }
         }
 
         // Confirm button
         if (config.getBoolean("buttons.confirm.enabled", true)) {
             int slot = config.getInt("buttons.confirm.slot", 51);
-            ItemStack confirmButton = VersionUtils.getXMaterialItemStack(config.getString("buttons.confirm.material", "EMERALD"));
+            String materialName = config.getString("buttons.confirm.material", "EMERALD");
+            ItemStack confirmButton = VersionUtils.getXMaterialItemStack(materialName);
+            String failureReason = null;
+            if (confirmButton.getType() == Material.STONE && !materialName.equalsIgnoreCase("EMERALD")) {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Invalid material '" + materialName + "' for confirm button, using EMERALD");
+                failureReason = "Invalid material '" + materialName + "'";
+                confirmButton = VersionUtils.getXMaterialItemStack("EMERALD");
+            }
             ItemMeta confirmMeta = confirmButton.getItemMeta();
             if (confirmMeta != null) {
                 confirmMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', config.getString("buttons.confirm.name", "&a&lConfirm")));
@@ -448,9 +509,27 @@ public class AddItemsGUI implements Listener {
                     confirmMeta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
                 }
                 confirmButton.setItemMeta(confirmMeta);
+            } else {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Failed to get ItemMeta for confirm button");
+                failureReason = "Failed to get ItemMeta";
             }
-            gui.setItem(slot, confirmButton);
-            debugManager.logDebug("Placed Confirm button in slot " + slot);
+            if (failureReason == null) {
+                gui.setItem(slot, confirmButton);
+                protectedSlots.add(slot);
+                successfulButtons++;
+            } else {
+                failures.add("confirm-button Reason: " + failureReason);
+            }
+        }
+
+        if (successfulButtons == totalButtons) {
+            debugManager.logDebug("[DEBUG - AddItemsGUI] All buttons created");
+        } else {
+            String failureMessage = "[DEBUG - AddItemsGUI] " + successfulButtons + "/" + totalButtons + " buttons created";
+            if (!failures.isEmpty()) {
+                failureMessage += ", failed to create: " + String.join(", ", failures);
+            }
+            debugManager.bufferFailure("AddItemsGUI_buttons_" + System.currentTimeMillis(), failureMessage);
         }
     }
 
@@ -487,16 +566,15 @@ public class AddItemsGUI implements Listener {
     }
 
     /**
-     * Handles a blacklisted item attempt // note: Returns item, sends message, closes GUI, and reopens after delay
+     * Handles a blacklisted item attempt
+     * // note: Returns item, sends message, closes GUI, and reopens after delay
      */
     private void handleBlacklistedItem(Player player, ItemStack item) {
         DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
-        debugManager.logDebug("Blacklisted item detected: " + item.getType().name() + " by " + player.getName());
+        debugManager.logDebug("[DEBUG - AddItemsGUI] Blacklisted item detected: " + item.getType().name() + " by " + player.getName());
 
-        // Return the blacklisted item to the player's inventory
         returnItemToPlayer(player, item);
 
-        // Get configuration for timing and messages
         FileConfiguration guiConfig = BountiesPlus.getInstance().getAddItemsGUIConfig();
         FileConfiguration messagesConfig = BountiesPlus.getInstance().getMessagesConfig();
         int fadeIn = guiConfig.getInt("title-duration.fade-in", 20);
@@ -504,47 +582,43 @@ public class AddItemsGUI implements Listener {
         int fadeOut = guiConfig.getInt("title-duration.fade-out", 20);
         long reopenDelay = guiConfig.getLong("reopen-delay", 100);
 
-        // Ensure non-negative timing values
         fadeIn = Math.max(0, fadeIn);
         stay = Math.max(0, stay);
         fadeOut = Math.max(0, fadeOut);
-        reopenDelay = Math.max(20, reopenDelay); // Minimum 1 second to avoid glitches
+        reopenDelay = Math.max(20, reopenDelay);
 
-        // Prepare placeholder context with item name
         String itemName = item.hasItemMeta() && item.getItemMeta().hasDisplayName() ?
                 item.getItemMeta().getDisplayName() : item.getType().name().toLowerCase().replace('_', ' ');
         PlaceholderContext context = PlaceholderContext.create()
                 .player(player)
                 .itemName(itemName);
 
-        // Send title or chat message based on version
         VersionWrapper wrapper = VersionWrapperFactory.getWrapper();
         if (VersionUtils.isPost111()) {
             String title = Placeholders.apply(messagesConfig.getString("blacklisted-item-title", "&cBlacklisted Item!"), context);
             String subtitle = Placeholders.apply(messagesConfig.getString("blacklisted-item-subtitle", "&e%item_name% &7cannot be added."), context);
             wrapper.sendTitle(player, title, subtitle, fadeIn, stay, fadeOut);
-            debugManager.logDebug("Sent title for blacklisted item to " + player.getName());
         } else {
-            String message = Placeholders.apply(messagesConfig.getString("blacklisted-item-message", "&c%item_name% &7is blacklisted and cannot be added to the bounty!"), context);
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', message));
-            debugManager.logDebug("Sent chat message for blacklisted item to " + player.getName());
+            String message = messagesConfig.getString("blacklisted-item-message", "&c%item_name% &7is blacklisted and cannot be added to the bounty!");
+            if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+                message = PlaceholderAPI.setPlaceholders(player, message);
+            }
+            message = ChatColor.translateAlternateColorCodes('&', Placeholders.apply(message, context));
+            BaseComponent[] components = TextComponent.fromLegacyText(message);
+            player.spigot().sendMessage(components);
         }
 
-        // Play error sound
         try {
             player.playSound(player.getLocation(), wrapper.getErrorSound(), 1.0f, 1.0f);
         } catch (IllegalArgumentException e) {
-            debugManager.logWarning("Failed to play error sound for " + player.getName() + ": " + e.getMessage());
+            debugManager.logWarning("[DEBUG - AddItemsGUI] Failed to play error sound for " + player.getName() + ": " + e.getMessage());
         }
 
-        // Close the GUI
         player.closeInventory();
 
-        // Schedule GUI reopen
         Bukkit.getScheduler().runTaskLater(BountiesPlus.getInstance(), () -> {
             if (player.isOnline()) {
-                new AddItemsGUI(player).openInventory(player);
-                debugManager.logDebug("Reopened AddItemsGUI for " + player.getName() + " after blacklisted item rejection");
+                new AddItemsGUI(player, BountiesPlus.getInstance().getEventManager()).openInventory(player);
             }
         }, reopenDelay);
     }
@@ -639,7 +713,6 @@ public class AddItemsGUI implements Listener {
         boolean hasProtectedSlots = dragSlots.stream().anyMatch(slot -> slot < 54 && protectedSlots.contains(slot));
         if (hasProtectedSlots) {
             event.setCancelled(true);
-            debugManager.bufferDebug("Drag cancelled for " + player.getName() + " due to protected slots");
             return;
         }
 
@@ -675,11 +748,11 @@ public class AddItemsGUI implements Listener {
         if (hasItemsChanged(player, inventory)) {
             String message = messagesConfig.getString("changes-discarded", "&eChanges discarded. Use Confirm to save item changes.");
             player.sendMessage(ChatColor.translateAlternateColorCodes('&', message));
-            debugManager.bufferDebug("Changes discarded for " + player.getName());
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Changes discarded for " + player.getName());
         } else {
             String message = messagesConfig.getString("no-changes", "&eReturned to Create Bounty GUI. No changes were made.");
             player.sendMessage(ChatColor.translateAlternateColorCodes('&', message));
-            debugManager.bufferDebug("No changes detected for " + player.getName());
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] No changes detected for " + player.getName());
         }
 
         cleanup(player);
@@ -689,14 +762,15 @@ public class AddItemsGUI implements Listener {
     }
 
     /**
-     * Handles the Confirm button click in the AddItemsGUI // note: Saves selected items to the bounty session and returns to CreateGUI
+     * Handles the Confirm button click in the AddItemsGUI
+     * // note: Saves selected items to the bounty session, starts session if new, and returns to CreateGUI
      */
     private void handleConfirmButton(Player player, Inventory inventory) {
         BountyCreationSession session = BountyCreationSession.getOrCreateSession(player);
         DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
 
         if (!validateTotalBountyValue(player, inventory, session)) {
-            debugManager.bufferDebug("Bounty value validation failed for " + player.getName());
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI]Bounty value validation failed for " + player.getName());
             return;
         }
 
@@ -709,14 +783,24 @@ public class AddItemsGUI implements Listener {
             if (!protectedSlots.contains(slot)) {
                 ItemStack item = inventory.getItem(slot);
                 if (item != null && item.getType() != Material.AIR) {
-                    collectedItems.add(item.clone());
-                    totalValue += calculator.calculateItemValue(item);
+                    ItemStack clonedItem = item.clone();
+                    // Enforce stack size limits
+                    if (clonedItem.getAmount() > clonedItem.getMaxStackSize()) {
+                        clonedItem.setAmount(clonedItem.getMaxStackSize());
+                    }
+                    collectedItems.add(clonedItem);
+                    totalValue += calculator.calculateItemValue(clonedItem);
                 }
             }
         }
 
-        // Update session
+        // Update session and start it if new items were added
+        boolean hadNoItemsBefore = !session.hasItemRewards();
         session.setItemRewards(collectedItems);
+        if (hadNoItemsBefore && !collectedItems.isEmpty()) {
+            debugManager.logDebug("[DEBUG - AddItemsGUI] Started bounty creation session for " + player.getName() + " due to item addition");
+        }
+
         FileConfiguration messagesConfig = BountiesPlus.getInstance().getMessagesConfig();
         String message = totalValue > 0 ?
                 messagesConfig.getString("items-added", "&aItems added to bounty! Total value: &e$%bountiesplus_item_value%") :
@@ -728,7 +812,7 @@ public class AddItemsGUI implements Listener {
         cleanup(player);
         player.closeInventory();
         session.returnToCreateGUI();
-        debugManager.bufferDebug("Confirmed items for " + player.getName() + ", returning to CreateGUI");
+        debugManager.bufferDebug("[DEBUG - AddItemsGUI] Confirmed items for " + player.getName() + ", returning to CreateGUI");
     }
 
     /**

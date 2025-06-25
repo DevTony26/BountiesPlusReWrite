@@ -1,6 +1,7 @@
 
 package tony26.bountiesPlus;
 
+import net.md_5.bungee.api.chat.BaseComponent;
 import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
@@ -13,14 +14,9 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import tony26.bountiesPlus.GUIs.BountyGUI;
-import tony26.bountiesPlus.GUIs.BountyCancel;
-import tony26.bountiesPlus.GUIs.PreviewGUI;
-import tony26.bountiesPlus.GUIs.TopGUI;
-import tony26.bountiesPlus.utils.MessageUtils;
-import tony26.bountiesPlus.utils.PlaceholderContext;
-import tony26.bountiesPlus.utils.Placeholders;
-import tony26.bountiesPlus.utils.TimeFormatter;
+import tony26.bountiesPlus.GUIs.*;
+import tony26.bountiesPlus.utils.*;
+import tony26.bountiesPlus.utils.ShopGuiPlusIntegration;
 
 import java.util.*;
 
@@ -33,7 +29,8 @@ public class BountyCommand implements CommandExecutor {
     }
 
     /**
-     * Handles the /bounty command execution // note: Dispatches to appropriate subcommand based on arguments
+     * Handles the /bounty command execution
+     * // note: Dispatches to appropriate subcommand based on arguments
      */
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -50,7 +47,7 @@ public class BountyCommand implements CommandExecutor {
 
         if (args.length == 0) {
             if (config.getBoolean("require-skull-turn-in", true)) {
-                BountyGUI.openBountyGUI(player, false, 0);
+                BountyGUI.openBountyGUI(player, false, false, 0);
             } else {
                 MessageUtils.sendFormattedMessage(player, "bounty-gui-disabled");
             }
@@ -86,7 +83,8 @@ public class BountyCommand implements CommandExecutor {
                     MessageUtils.sendFormattedMessage(player, "bounty-player-not-found");
                     return true;
                 }
-                new PreviewGUI(player, previewTarget.getUniqueId()).openInventory(player);
+                PreviewGUI previewGUI = new PreviewGUI(player, previewTarget.getUniqueId(), plugin.getEventManager());
+                previewGUI.openInventory(player);
                 return true;
             case "top":
                 if (!player.hasPermission("bountiesplus.bounty.top")) {
@@ -97,12 +95,41 @@ public class BountyCommand implements CommandExecutor {
                     MessageUtils.sendFormattedMessage(player, "bounty-top-usage");
                     return true;
                 }
-                new TopGUI(plugin).openTopGUI(player, 0, TopGUI.FilterType.CLAIMED, true);
+                TopGUI topGUI = new TopGUI(plugin, plugin.getEventManager());
+                topGUI.openTopGUI(player, 0, TopGUI.FilterType.CLAIMED, true);
                 return true;
+            case "shop":
+                return handleShopCommand(player, args);
             default:
                 MessageUtils.sendFormattedMessage(player, "bounty-usage");
                 return true;
         }
+    }
+
+    /**
+     * Handles the shop subcommand
+     * // note: Opens the Hunters Den shop GUI or ShopGUIPlus shop
+     */
+    private boolean handleShopCommand(Player player, String[] args) {
+        if (!player.hasPermission("bountiesplus.shop")) {
+            MessageUtils.sendFormattedMessage(player, "no-permission");
+            plugin.getDebugManager().logDebug("[BountyCommand] " + player.getName() + " attempted /bounty shop without permission");
+            return true;
+        }
+        if (!plugin.getConfig().getBoolean("shop.enable-shop", true)) {
+            MessageUtils.sendFormattedMessage(player, "shop-disabled");
+            plugin.getDebugManager().logDebug("[BountyCommand] " + player.getName() + " attempted /bounty shop but shop is disabled");
+            return true;
+        }
+        ShopGuiPlusIntegration shopIntegration = plugin.getShopGuiPlusIntegration();
+        if (shopIntegration != null) {
+            shopIntegration.openShop(player);
+        } else {
+            HunterDenGUI gui = new HunterDenGUI(player, plugin.getEventManager());
+            gui.openInventory(player);
+            plugin.getDebugManager().logDebug("[BountyCommand] Opened default HunterDenGUI for " + player.getName());
+        }
+        return true;
     }
 
     /**
@@ -142,10 +169,8 @@ public class BountyCommand implements CommandExecutor {
         Map<UUID, Integer> bounties = plugin.getBountyManager().getBountiesOnTarget(targetUUID);
 
         if (bounties.isEmpty()) {
-            String noBounty = messagesConfig.getString("bounty-status-none", "%prefix%&7%target% &ahas no bounties.");
-            noBounty = noBounty.replace("%prefix%", messagesConfig.getString("prefix", "&4&lBounties &7&l» &7"));
-            noBounty = noBounty.replace("%target%", targetName);
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', noBounty));
+            PlaceholderContext context = PlaceholderContext.create().player(player).target(targetUUID);
+            MessageUtils.sendFormattedMessage(player, "bounty-status-none", context);
             return true;
         }
 
@@ -240,7 +265,8 @@ public class BountyCommand implements CommandExecutor {
 
         List<String> formattedMessages = Placeholders.apply(statusMessages, context);
         for (String message : formattedMessages) {
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', message));
+            BaseComponent[] components = TextComponent.fromLegacyText(ChatColor.translateAlternateColorCodes('&', message));
+            player.spigot().sendMessage(components);
         }
 
         // Add a blank line for separation
@@ -248,8 +274,8 @@ public class BountyCommand implements CommandExecutor {
 
         // Send clickable preview line
         String clickableText = messagesConfig.getString("bounty-status-clickable", "&7[Click to view preview]");
-        clickableText = ChatColor.translateAlternateColorCodes('&', clickableText);
-        TextComponent clickable = new TextComponent(clickableText);
+        clickableText = Placeholders.apply(clickableText, context);
+        TextComponent clickable = new TextComponent(TextComponent.fromLegacyText(ChatColor.translateAlternateColorCodes('&', clickableText)));
         clickable.setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/bounty preview " + targetName));
         player.spigot().sendMessage(clickable);
 
@@ -488,7 +514,8 @@ public class BountyCommand implements CommandExecutor {
 
 
     /**
-     * Handles the /bounty set command // note: Processes bounty placement with validation for amount, time, and permissions
+     * Handles the /bounty set command
+     * // note: Processes bounty placement with validation for amount, time, and permissions
      */
     private boolean handleSetCommand(Player player, String[] args, FileConfiguration config, FileConfiguration messagesConfig) {
         if (args.length < 3) {
@@ -542,9 +569,10 @@ public class BountyCommand implements CommandExecutor {
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&', invalidAmount.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%amount%", args[2])));
                 return true;
             }
-            double minBountyAmount = config.getDouble("min-bounty-amount", 100.0);
-            double maxBountyAmount = config.getDouble("max-bounty-amount", 1000000.0);
-            if (amount < minBountyAmount) {
+            double minBountyAmount = config.getDouble("money.min-bounty-amount", 100.0);
+            double maxBountyAmount = config.getDouble("money.max-bounty-amount", 1000000.0);
+            boolean allowZeroDollarBounties = config.getBoolean("money.allow-zero-dollar-bounties", false);
+            if (!allowZeroDollarBounties && amount < minBountyAmount) {
                 String invalidAmount = messagesConfig.getString("bounty-invalid-amount", "%prefix%&cAmount must be at least $%bountiesplus_min_amount%!");
                 PlaceholderContext context = PlaceholderContext.create().player(player).moneyValue(minBountyAmount);
                 player.sendMessage(Placeholders.apply(invalidAmount.replace("%prefix%", messagesConfig.getString("prefix", "")), context));

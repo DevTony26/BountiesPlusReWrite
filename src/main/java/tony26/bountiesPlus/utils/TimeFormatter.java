@@ -80,4 +80,56 @@ public class TimeFormatter {
         long timeDiff = currentTime - timestamp;
         return formatTimeAgo(timeDiff);
     }
+
+    /**
+     * Parses a time string into minutes
+     * // note: Converts input like "1h", "30m", "2d" into total minutes
+     */
+    public static int parseTimeString(String timeString) {
+        if (timeString == null || timeString.isEmpty()) {
+            throw new IllegalArgumentException("Invalid time format: empty or null");
+        }
+
+        timeString = timeString.toLowerCase().trim();
+        try {
+            // Handle numeric input (assume minutes by default)
+            if (timeString.matches("\\d+")) {
+                return Integer.parseInt(timeString);
+            }
+
+            // Extract numeric value and unit
+            StringBuilder number = new StringBuilder();
+            StringBuilder unit = new StringBuilder();
+            for (char c : timeString.toCharArray()) {
+                if (Character.isDigit(c)) {
+                    number.append(c);
+                } else {
+                    unit.append(c);
+                }
+            }
+
+            if (number.length() == 0) {
+                throw new IllegalArgumentException("No numeric value in time string");
+            }
+
+            int value = Integer.parseInt(number.toString());
+            String unitStr = unit.toString().trim();
+
+            switch (unitStr) {
+                case "s": // seconds
+                    return value / 60; // Convert to minutes
+                case "m": // minutes
+                case "":
+                    return value;
+                case "h": // hours
+                    return value * 60;
+                case "d": // days
+                    return value * 1440; // 24 hours * 60 minutes
+                default:
+                    throw new IllegalArgumentException("Unknown time unit: " + unitStr);
+            }
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid numeric value in time string: " + timeString);
+        }
+    }
 }

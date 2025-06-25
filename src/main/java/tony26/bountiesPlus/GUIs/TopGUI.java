@@ -18,9 +18,9 @@ import org.bukkit.inventory.meta.FireworkEffectMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
 import tony26.bountiesPlus.BountiesPlus;
-import tony26.bountiesPlus.SkullUtils;
+import tony26.bountiesPlus.utils.EventManager;
+import tony26.bountiesPlus.utils.SkullUtils;
 import tony26.bountiesPlus.utils.*;
-import tony26.bountiesPlus.utils.MessageUtils;
 
 import java.io.File;
 import java.sql.Connection;
@@ -28,6 +28,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 public class TopGUI implements Listener {
@@ -39,6 +40,8 @@ public class TopGUI implements Listener {
     private final Map<UUID, Inventory> openInventories;
     private static FilterType currentFilterType = FilterType.CLAIMED;
     private static boolean sortHighToLow = true;
+    // Static field to track item failures
+    private static final Map<String, String> itemFailures = new ConcurrentHashMap<>();
 
     public enum FilterType {
         CLAIMED, SURVIVED, MONEY_EARNED, XP_EARNED, TOTAL_VALUE
@@ -51,6 +54,7 @@ public class TopGUI implements Listener {
         private final double moneyEarned;
         private final int xpEarned;
         private final double totalValueEarned;
+
 
         public PlayerData(UUID uuid, int claimed, int survived, double moneyEarned, int xpEarned, double totalValueEarned) {
             this.uuid = uuid;
@@ -69,12 +73,16 @@ public class TopGUI implements Listener {
         public double getTotalValueEarned() { return totalValueEarned; }
     }
 
-    public TopGUI(BountiesPlus plugin) {
+    /**
+     * Constructs the TopGUI
+     * // note: Initializes leaderboard GUI and registers listeners
+     */
+    public TopGUI(BountiesPlus plugin, EventManager eventManager) {
         this.plugin = plugin;
         this.openPages = new HashMap<>();
         this.openInventories = new HashMap<>();
         loadConfig();
-        plugin.getServer().getPluginManager().registerEvents(this, plugin);
+        eventManager.register(this); // Use EventManager
     }
 
     /**
@@ -82,11 +90,27 @@ public class TopGUI implements Listener {
      * // note: Initializes GUI settings for the leaderboard display
      */
     private void loadConfig() {
-        File configFile = new File(plugin.getDataFolder(), "TopGUI.yml");
+        File configFile = new File(plugin.getDataFolder(), "GUIs/TopGUI.yml");
         if (!configFile.exists()) {
-            plugin.saveResource("TopGUI.yml", false);
+            try {
+                plugin.saveResource("GUIs/TopGUI.yml", false); // Copy default config from resources
+                plugin.getLogger().info("[DEBUG - TopGUI] Created default TopGUI.yml");
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("[DEBUG - TopGUI] Failed to save default TopGUI.yml: " + e.getMessage());
+            }
         }
         config = YamlConfiguration.loadConfiguration(configFile);
+        // Verify configuration integrity
+        if (config.getConfigurationSection("Plugin-Items") == null) {
+            plugin.getLogger().warning("[DEBUG - TopGUI] TopGUI.yml is empty or invalid, reloading default");
+            try {
+                configFile.delete(); // Remove invalid file
+                plugin.saveResource("GUIs/TopGUI.yml", false); // Recopy default
+                config = YamlConfiguration.loadConfiguration(configFile);
+            } catch (IllegalArgumentException e) {
+                plugin.getLogger().warning("[DEBUG - TopGUI] Failed to reload default TopGUI.yml: " + e.getMessage());
+            }
+        }
     }
 
     /**
@@ -94,62 +118,117 @@ public class TopGUI implements Listener {
      * // note: Displays player skulls with selected filter and sort order, including navigation and filter buttons
      */
     public void openTopGUI(Player player, int page, FilterType filterType, boolean sortHighToLow) {
+        DebugManager debugManager = plugin.getDebugManager();
+        itemFailures.clear(); // Clear previous failures
+
         String title = ChatColor.translateAlternateColorCodes('&', config.getString("title", "&4&lBounty Leaderboard"));
         Inventory inventory = Bukkit.createInventory(null, ROWS * 9, title);
         currentFilterType = filterType;
         this.sortHighToLow = sortHighToLow;
 
+        // List of items to create
+        Map<String, Integer> items = new HashMap<>();
+        items.put("Plugin-Items.Border", -1); // Multiple slots
+        items.put("Plugin-Items.Info", 3);
+        items.put("Plugin-Items.Player-Skull", 4); // Player skull
+        items.put("Plugin-Items.Filter", 5);
+        items.put("Plugin-Items.Close", 49);
+        if (page > 0) {
+            items.put("Plugin-Items.Previous", 48);
+        }
+        if (page < (int) Math.ceil((double) getFilteredPlayers(filterType, sortHighToLow).size() / SLOTS_PER_PAGE) - 1) {
+            items.put("Plugin-Items.Next", 50);
+        }
+
+        int totalItems = items.size() + 1; // +1 for border slots
+        int successfulItems = 0;
+        List<String> failures = new ArrayList<>();
+
         // Set border with glass panes
         ItemStack borderItem = createItem("Plugin-Items.Border");
-        for (int i = 0; i < 9; i++) {
-            inventory.setItem(i, borderItem); // Top row
-            inventory.setItem(45 + i, borderItem); // Bottom row
-        }
-        for (int i = 9; i <= 45; i += 9) {
-            inventory.setItem(i, borderItem); // Left column
-            inventory.setItem(i + 8, borderItem); // Right column
+        if (borderItem != null && borderItem.getType() != Material.AIR) {
+            for (int i = 0; i < 9; i++) {
+                inventory.setItem(i, borderItem); // Top row
+                inventory.setItem(45 + i, borderItem); // Bottom row
+            }
+            for (int i = 9; i <= 45; i += 9) {
+                inventory.setItem(i, borderItem); // Left column
+                inventory.setItem(i + 8, borderItem); // Right column
+            }
+            successfulItems++; // Count border as one item
+        } else {
+            failures.add("Plugin-Items.Border Reason: Failed to create item");
         }
 
-        // Get filtered and sorted player list
+        // Place other items
+        for (Map.Entry<String, Integer> entry : items.entrySet()) {
+            String path = entry.getKey();
+            int slot = entry.getValue();
+            if (path.equals("Plugin-Items.Border")) continue; // Handled above
+
+            ItemStack item = null;
+            if (path.equals("Plugin-Items.Filter")) {
+                item = createFilterItem(filterType, sortHighToLow);
+            } else if (path.equals("Plugin-Items.Player-Skull")) {
+                item = createPlayerSkull(player);
+            } else {
+                item = createItem(path);
+            }
+
+            if (item != null && item.getType() != Material.AIR && slot >= 0 && slot < inventory.getSize()) {
+                inventory.setItem(slot, item);
+                successfulItems++;
+            } else if (item == null || item.getType() == Material.AIR) {
+                String failure = itemFailures.get(path);
+                failures.add(path + " Reason: " + (failure != null ? failure : "Failed to create item"));
+            } else {
+                failures.add(path + " Reason: Invalid slot " + slot);
+            }
+        }
+
+        // Fill slots with player skulls
         List<PlayerData> playerDataList = getFilteredPlayers(filterType, sortHighToLow);
-
-        // Calculate pagination
         int totalPages = (int) Math.ceil((double) playerDataList.size() / SLOTS_PER_PAGE);
         page = Math.max(0, Math.min(page, totalPages - 1));
         int startIndex = page * SLOTS_PER_PAGE;
         int endIndex = Math.min(startIndex + SLOTS_PER_PAGE, playerDataList.size());
-
-        // Fill slots with player skulls
         int[] contentSlots = {
                 10, 11, 12, 13, 14, 15, 16,
                 19, 20, 21, 22, 23, 24, 25,
                 28, 29, 30, 31, 32, 33, 34,
                 37, 38, 39, 40, 41, 42, 43
         };
+
+        int totalPlayerSkulls = endIndex - startIndex;
+        int successfulPlayerSkulls = 0;
+        List<String> playerSkullFailures = new ArrayList<>();
+
         for (int i = startIndex, slotIndex = 0; i < endIndex && slotIndex < contentSlots.length; i++, slotIndex++) {
             PlayerData data = playerDataList.get(i);
             ItemStack skull = createPlayerSkull(data);
-            inventory.setItem(contentSlots[slotIndex], skull);
+            if (skull != null && skull.getType() != Material.AIR) {
+                inventory.setItem(contentSlots[slotIndex], skull);
+                successfulPlayerSkulls++;
+            } else {
+                String failure = itemFailures.get("Plugin-Items.Player-Skull-" + data.getUUID());
+                playerSkullFailures.add("Player-Skull-" + data.getUUID() + " Reason: " + (failure != null ? failure : "Failed to create skull"));
+            }
         }
 
-        // Top row: Player skull, info paper, filter button
-        ItemStack playerSkull = createPlayerSkull(player);
-        ItemStack infoItem = createItem("Plugin-Items.Info");
-        ItemStack filterItem = createFilterItem(filterType, sortHighToLow);
-        inventory.setItem(3, infoItem);
-        inventory.setItem(4, playerSkull);
-        inventory.setItem(5, filterItem);
+        // Combine items and player skulls for total count
+        totalItems += totalPlayerSkulls;
+        successfulItems += successfulPlayerSkulls;
+        failures.addAll(playerSkullFailures);
 
-        // Bottom row: Previous, Close, Next
-        ItemStack closeItem = createItem("Plugin-Items.Close");
-        inventory.setItem(49, closeItem);
-        if (page > 0) {
-            ItemStack prevItem = createItem("Plugin-Items.Previous");
-            inventory.setItem(48, prevItem);
-        }
-        if (page < totalPages - 1) {
-            ItemStack nextItem = createItem("Plugin-Items.Next");
-            inventory.setItem(50, nextItem);
+        // Log consolidated debug message
+        if (successfulItems == totalItems) {
+            debugManager.logDebug("[DEBUG - TopGUI] All items created");
+        } else {
+            String failureMessage = "[DEBUG - TopGUI] " + successfulItems + "/" + totalItems + " items created";
+            if (!failures.isEmpty()) {
+                failureMessage += ", failed to create: " + String.join(", ", failures);
+            }
+            debugManager.bufferFailure("TopGUI_items_" + System.currentTimeMillis(), failureMessage);
         }
 
         openPages.put(player.getUniqueId(), page);
@@ -182,11 +261,11 @@ public class TopGUI implements Listener {
                 int rgb = Integer.parseInt(hex, 16);
                 return Color.fromRGB(rgb);
             } catch (NumberFormatException e) {
-                plugin.getLogger().warning("Invalid hex color: " + hex + ", using white");
+                plugin.getLogger().warning("[DEBUG - TopGUI] Invalid hex color: " + hex + ", using white");
                 return Color.WHITE;
             }
         }
-        plugin.getLogger().warning("No color configuration found for path: " + colorConfigPath + ", using white");
+        plugin.getLogger().warning("[DEBUG - TopGUI] No color configuration found for path: " + colorConfigPath + ", using white");
         return Color.WHITE;
     }
 
@@ -207,7 +286,7 @@ public class TopGUI implements Listener {
             effectType = FireworkEffect.Type.valueOf(effectTypeString.toUpperCase());
         } catch (IllegalArgumentException e) {
             effectType = FireworkEffect.Type.STAR;
-            plugin.getLogger().warning("Invalid firework effect type: " + effectTypeString + ", using STAR");
+            plugin.getLogger().warning("[DEBUG - TopGUI] Invalid firework effect type: " + effectTypeString + ", using STAR");
         }
         FireworkEffect effect = FireworkEffect.builder()
                 .withColor(color)
@@ -222,16 +301,18 @@ public class TopGUI implements Listener {
      * // note: Generates a firework star with color and glow reflecting current filter and sort order
      */
     private ItemStack createFilterItem(FilterType filterType, boolean sortHighToLow) {
-        String materialName = config.getString("Plugin-Items.Filter.Material", "FIREWORK_STAR");
+        DebugManager debugManager = plugin.getDebugManager();
+        String path = "Plugin-Items.Filter";
+        String failureReason = null;
+
+        String materialName = config.getString(path + ".Material", "FIREWORK_STAR");
         ItemStack item = VersionUtils.getXMaterialItemStack(materialName);
         if (item.getType() == Material.STONE && !materialName.equalsIgnoreCase("FIREWORK_STAR")) {
-            plugin.getLogger().warning("Invalid material '" + materialName + "' for filter-button in TopGUI.yml, using FIREWORK_STAR");
-            FileConfiguration messagesConfig = plugin.getMessagesConfig();
-            String errorMessage = messagesConfig.getString("invalid-material", "&cInvalid material %material% for %button%!");
-            errorMessage = errorMessage.replace("%material%", materialName).replace("%button%", "filter-button");
-            plugin.getLogger().info(ChatColor.stripColor(errorMessage));
+            debugManager.logWarning("[DEBUG - TopGUI] Invalid material '" + materialName + "' for filter-button in TopGUI.yml, using FIREWORK_STAR");
+            failureReason = "Invalid material '" + materialName + "'";
             item = VersionUtils.getXMaterialItemStack("FIREWORK_STAR");
         }
+
         boolean shouldGlow = sortHighToLow;
         String filterStatus;
         String filterDetails;
@@ -240,32 +321,32 @@ public class TopGUI implements Listener {
             case CLAIMED:
                 filterStatus = "&eClaimed";
                 filterDetails = "&eBounties Claimed";
-                colorConfigPath = "Plugin-Items.Filter.firework-effect.claimed-color";
+                colorConfigPath = path + ".firework-effect.claimed-color";
                 break;
             case SURVIVED:
                 filterStatus = "&eSurvived";
                 filterDetails = "&eBounties Survived";
-                colorConfigPath = "Plugin-Items.Filter.firework-effect.survived-color";
+                colorConfigPath = path + ".firework-effect.survived-color";
                 break;
             case MONEY_EARNED:
                 filterStatus = "&eMoney";
                 filterDetails = "&eMoney Earned";
-                colorConfigPath = "Plugin-Items.Filter.firework-effect.money-earned-color";
+                colorConfigPath = path + ".firework-effect.money-earned-color";
                 break;
             case XP_EARNED:
                 filterStatus = "&eXP";
                 filterDetails = "&eXP Earned";
-                colorConfigPath = "Plugin-Items.Filter.firework-effect.xp-earned-color";
+                colorConfigPath = path + ".firework-effect.xp-earned-color";
                 break;
             case TOTAL_VALUE:
                 filterStatus = "&eValue";
                 filterDetails = "&eTotal Value Earned";
-                colorConfigPath = "Plugin-Items.Filter.firework-effect.total-value-color";
+                colorConfigPath = path + ".firework-effect.total-value-color";
                 break;
             default:
                 filterStatus = "&eAll";
                 filterDetails = "&eAll Stats";
-                colorConfigPath = "Plugin-Items.Filter.firework-effect.all-color";
+                colorConfigPath = path + ".firework-effect.all-color";
         }
         if (sortHighToLow) {
             filterStatus += " &8| &eHigh→Low";
@@ -275,27 +356,41 @@ public class TopGUI implements Listener {
             filterStatus += " &8| &eLow→High";
             filterDetails += " &8+ &eLow to High Sorting";
         }
+
         applyFireworkStarColor(item, config, colorConfigPath);
+
         ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            String name = ChatColor.translateAlternateColorCodes('&', config.getString("Plugin-Items.Filter.Name", "&eFilter: %filter_status%"));
-            name = name.replace("%filter_status%", ChatColor.translateAlternateColorCodes('&', filterStatus));
-            meta.setDisplayName(name);
-            List<String> lore = config.getStringList("Plugin-Items.Filter.Lore");
-            List<String> coloredLore = new ArrayList<>();
-            for (String line : lore) {
-                line = ChatColor.translateAlternateColorCodes('&', line);
-                line = line.replace("%filter_status%", ChatColor.translateAlternateColorCodes('&', filterStatus));
-                line = line.replace("%filter_details%", ChatColor.translateAlternateColorCodes('&', filterDetails));
-                coloredLore.add(line);
-            }
-            meta.setLore(coloredLore);
-            if (shouldGlow || config.getBoolean("Plugin-Items.Filter.Enchantment-Glow", false)) {
-                meta.addEnchant(Enchantment.DURABILITY, 1, true);
-                meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-            }
-            item.setItemMeta(meta);
+        if (meta == null) {
+            debugManager.logWarning("[DEBUG - TopGUI] Failed to get ItemMeta for filter-button");
+            failureReason = "Failed to get ItemMeta";
+            return item;
         }
+
+        String name = ChatColor.translateAlternateColorCodes('&', config.getString(path + ".Name", "&eFilter: %filter_status%"));
+        name = name.replace("%filter_status%", ChatColor.translateAlternateColorCodes('&', filterStatus));
+        meta.setDisplayName(name);
+
+        List<String> lore = config.getStringList(path + ".Lore");
+        List<String> coloredLore = new ArrayList<>();
+        for (String line : lore) {
+            line = ChatColor.translateAlternateColorCodes('&', line);
+            line = line.replace("%filter_status%", ChatColor.translateAlternateColorCodes('&', filterStatus));
+            line = line.replace("%filter_details%", ChatColor.translateAlternateColorCodes('&', filterDetails));
+            coloredLore.add(line);
+        }
+        meta.setLore(coloredLore);
+
+        if (shouldGlow || config.getBoolean(path + ".Enchantment-Glow", false)) {
+            meta.addEnchant(Enchantment.DURABILITY, 1, true);
+            meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+        }
+
+        item.setItemMeta(meta);
+
+        if (failureReason != null) {
+            itemFailures.put(path, failureReason);
+        }
+
         return item;
     }
 
@@ -323,11 +418,11 @@ public class TopGUI implements Listener {
                         double totalValueEarned = rs.getDouble("total_value_earned");
                         playerDataList.add(new PlayerData(uuid, claimed, survived, moneyEarned, xpEarned, totalValueEarned));
                     } catch (IllegalArgumentException e) {
-                        plugin.getLogger().warning("Invalid UUID in player_stats: " + uuidString);
+                        plugin.getLogger().warning("[DEBUG - TopGUI] Invalid UUID in player_stats: " + uuidString);
                     }
                 }
             } catch (SQLException e) {
-                plugin.getLogger().warning("Failed to fetch stats from MySQL: " + e.getMessage());
+                plugin.getLogger().warning("[DEBUG - TopGUI] Failed to fetch stats from MySQL: " + e.getMessage());
             }
         } else {
             FileConfiguration statsConfig = plugin.getStatsConfig();
@@ -345,7 +440,7 @@ public class TopGUI implements Listener {
                         double totalValueEarned = statsConfig.getDouble("players." + uuidString + ".total_value_earned", 0.0);
                         playerDataList.add(new PlayerData(uuid, claimed, survived, moneyEarned, xpEarned, totalValueEarned));
                     } catch (IllegalArgumentException e) {
-                        plugin.getLogger().warning("Invalid UUID in stats.yml: " + uuidString);
+                        plugin.getLogger().warning("[DEBUG - TopGUI] Invalid UUID in stats.yml: " + uuidString);
                     }
                 }
             }
@@ -392,34 +487,46 @@ public class TopGUI implements Listener {
      * // note: Builds an item with specified material, name, lore, and glow
      */
     private ItemStack createItem(String path) {
+        DebugManager debugManager = plugin.getDebugManager();
+        String failureReason = null;
+
         String materialName = config.getString(path + ".Material", "STONE");
-        Material material;
-        try {
-            material = Material.valueOf(materialName.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            plugin.getLogger().warning("Invalid material " + materialName + " in TopGUI.yml at " + path);
-            material = Material.STONE;
+        ItemStack item = VersionUtils.getXMaterialItemStack(materialName);
+        if (item.getType() == Material.STONE && !materialName.equalsIgnoreCase("STONE")) {
+            debugManager.logWarning("[DEBUG - TopGUI] Invalid material '" + materialName + "' at " + path + ", using STONE");
+            failureReason = "Invalid material '" + materialName + "'";
         }
 
-        ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            String name = config.getString(path + ".Name", "");
-            if (!name.isEmpty()) {
-                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', name));
-            }
-            List<String> lore = config.getStringList(path + ".Lore");
-            if (!lore.isEmpty()) {
-                meta.setLore(lore.stream()
-                        .map(line -> ChatColor.translateAlternateColorCodes('&', line))
-                        .collect(Collectors.toList()));
-            }
-            if (config.getBoolean(path + ".Enchantment-Glow", false)) {
-                meta.addEnchant(Enchantment.DURABILITY, 1, true);
-                meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-            }
-            item.setItemMeta(meta);
+        if (meta == null) {
+            debugManager.logWarning("[DEBUG - TopGUI] Failed to get ItemMeta for item at " + path);
+            failureReason = "Failed to get ItemMeta";
+            return item;
         }
+
+        String name = config.getString(path + ".Name", "");
+        if (!name.isEmpty()) {
+            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', name));
+        }
+
+        List<String> lore = config.getStringList(path + ".Lore");
+        if (!lore.isEmpty()) {
+            meta.setLore(lore.stream()
+                    .map(line -> ChatColor.translateAlternateColorCodes('&', line))
+                    .collect(Collectors.toList()));
+        }
+
+        if (config.getBoolean(path + ".Enchantment-Glow", false)) {
+            meta.addEnchant(Enchantment.DURABILITY, 1, true);
+            meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+        }
+
+        item.setItemMeta(meta);
+
+        if (failureReason != null) {
+            itemFailures.put(path, failureReason);
+        }
+
         return item;
     }
 
@@ -431,7 +538,7 @@ public class TopGUI implements Listener {
         OfflinePlayer player = Bukkit.getOfflinePlayer(data.getUUID());
         ItemStack skull = SkullUtils.createVersionAwarePlayerHead(player);
         if (skull == null || !VersionUtils.isPlayerHead(skull)) {
-            plugin.getLogger().warning("Failed to create player head for " + (player.getName() != null ? player.getName() : data.getUUID()));
+            plugin.getLogger().warning("[DEBUG - TopGUI] Failed to create player head for " + (player.getName() != null ? player.getName() : data.getUUID()));
             skull = VersionUtils.getXMaterialItemStack("SKELETON_SKULL");
         }
         SkullMeta meta = (SkullMeta) skull.getItemMeta();
@@ -473,7 +580,7 @@ public class TopGUI implements Listener {
     private ItemStack createPlayerSkull(Player player) {
         ItemStack skull = SkullUtils.createVersionAwarePlayerHead(player);
         if (skull == null || !VersionUtils.isPlayerHead(skull)) {
-            plugin.getLogger().warning("Failed to create player head for " + player.getName());
+            plugin.getLogger().warning("[DEBUG - TopGUI] Failed to create player head for " + player.getName());
             skull = VersionUtils.getXMaterialItemStack("SKELETON_SKULL");
         }
         SkullMeta meta = (SkullMeta) skull.getItemMeta();
@@ -497,7 +604,8 @@ public class TopGUI implements Listener {
     }
 
     /**
-     * Handles clicks in the TopGUI // note: Prevents item movement and processes button actions, including filter cycling and sort toggling
+     * Handles clicks in the TopGUI
+     * // note: Prevents item movement and processes button actions, including filter cycling and sort toggling
      */
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
@@ -509,7 +617,6 @@ public class TopGUI implements Listener {
         // Validate inventory
         Inventory trackedInventory = openInventories.getOrDefault(player.getUniqueId(), null);
         if (trackedInventory == null || !trackedInventory.equals(inventory)) {
-            debugManager.bufferDebug("Click ignored for " + player.getName() + ": not a TopGUI inventory");
             return;
         }
 
@@ -536,10 +643,10 @@ public class TopGUI implements Listener {
             // Filter Button
             if (event.getClick() == ClickType.LEFT) {
                 currentFilterType = FilterType.values()[(currentFilterType.ordinal() + 1) % FilterType.values().length];
-                debugManager.bufferDebug("Filter cycled to " + currentFilterType + " by " + player.getName());
+                debugManager.bufferDebug("[DEBUG - TopGUI] Filter cycled to " + currentFilterType + " by " + player.getName());
             } else if (event.getClick() == ClickType.RIGHT) {
                 sortHighToLow = !sortHighToLow;
-                debugManager.bufferDebug("Sort toggled to " + (sortHighToLow ? "High→Low" : "Low→High") + " by " + player.getName());
+                debugManager.bufferDebug("[DEBUG - TopGUI] Sort toggled to " + (sortHighToLow ? "High→Low" : "Low→High") + " by " + player.getName());
             }
             openTopGUI(player, 0, currentFilterType, sortHighToLow);
         }
