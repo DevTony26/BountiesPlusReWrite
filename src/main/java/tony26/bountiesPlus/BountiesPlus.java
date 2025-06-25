@@ -4,6 +4,7 @@ import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
@@ -28,7 +29,6 @@ import java.util.concurrent.Executors;
 
 public class BountiesPlus extends JavaPlugin implements Listener {
 
-    // Fields
     private static BountiesPlus instance;
     private static Economy economy;
     private BountyManager bountyManager;
@@ -46,7 +46,6 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     private ItemValueCalculator itemValueCalculator;
     private TablistManager tablistManager;
     private DebugManager debugManager;
-    private BountyStats bountyStats;
     private boolean bountySoundEnabled;
     private String bountySoundName;
     private float bountySoundVolume;
@@ -56,6 +55,7 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     private ExecutorService executorService;
     private EventManager eventManager;
     private ShopGuiPlusIntegration shopGuiPlusIntegration;
+    private BountyStats bountyStats;
     private static final ConfigWrapper CONFIG = new ConfigWrapper("config.yml");
     private static final ConfigWrapper MESSAGES_CONFIG = new ConfigWrapper("messages.yml");
     private static final ConfigWrapper ITEM_VALUE_CONFIG = new ConfigWrapper("ItemValue.yml");
@@ -71,7 +71,6 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     private static final ConfigWrapper ADD_ITEMS_CONFIG = new ConfigWrapper("GUIs/AddItemsGUI.yml");
     private static final ConfigWrapper BOUNTY_CANCEL_CONFIG = new ConfigWrapper("GUIs/BountyCancelGUI.yml");
 
-    // Getters
     public static BountiesPlus getInstance() {
         return instance;
     }
@@ -236,31 +235,8 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     public void onEnable() {
         instance = this;
 
-        // Initialize DebugManager first
+        // Initialize DebugManager first to ensure it's available for ConfigWrapper
         debugManager = new DebugManager(this);
-
-        // Initialize configuration files
-        CONFIG = new ConfigWrapper("config.yml");
-        MESSAGES_CONFIG = new ConfigWrapper("messages.yml");
-        ITEM_VALUE_CONFIG = new ConfigWrapper("ItemValue.yml");
-        ITEMS_CONFIG = new ConfigWrapper("items.yml");
-        BOUNTY_TEAM_CHECK_CONFIG = new ConfigWrapper("BountyTeamChecks.yml");
-        STAT_STORAGE_CONFIG = new ConfigWrapper("Storage/StatStorage.yml");
-        BOUNTY_STORAGE_CONFIG = new ConfigWrapper("Storage/BountyStorage.yml");
-        BOUNTY_GUI_CONFIG = new ConfigWrapper("GUIs/BountyGUI.yml");
-        TOP_GUI_CONFIG = new ConfigWrapper("GUIs/TopGUI.yml");
-        CREATE_GUI_CONFIG = new ConfigWrapper("GUIs/CreateGUI.yml");
-        HUNTER_DEN_CONFIG = new ConfigWrapper("GUIs/HuntersDen.yml");
-        PREVIEW_GUI_CONFIG = new ConfigWrapper("GUIs/PreviewGUI.yml");
-        ADD_ITEMS_CONFIG = new ConfigWrapper("GUIs/AddItemsGUI.yml");
-        BOUNTY_CANCEL_CONFIG = new ConfigWrapper("GUIs/BountyCancelGUI.yml");
-
-        // Log config initialization
-        if (debugManager != null) {
-            debugManager.logDebug("[DEBUG - BountiesPlus] All configuration files initialized");
-        } else {
-            getLogger().info("[DEBUG - BountiesPlus] All configuration files initialized");
-        }
 
         // Initialize managers
         eventManager = new EventManager(this);
@@ -316,37 +292,6 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     }
 
     /**
-     * Called when the plugin is disabled
-     * // note: Cleans up resources, saves data, and unregisters listeners
-     */
-    @Override
-    public void onDisable() {
-        // Clear filter states for shutdown
-        BountyGUI.clearPlayerShowOnlyOnline();
-
-        // Cleanup Listeners
-        if (eventManager != null) {
-            eventManager.unregisterAll();
-            getLogger().info("Unregistered all event listeners.");
-        }
-
-        // Save Data
-        saveEverything();
-        getLogger().info("Saved all plugin data.");
-
-        // Cleanup Resources
-        if (executorService != null) {
-            executorService.shutdown();
-            getLogger().info("Shutdown async executor service.");
-        }
-        if (mySQL != null && mySQL.isEnabled()) {
-            mySQL.closeConnection();
-            getLogger().info("Closed MySQL connection.");
-        }
-        getLogger().info("BountiesPlus fully disabled!");
-    }
-
-    /**
      * Sets up Vault economy integration
      * // note: Initializes economy provider if Vault is present
      */
@@ -356,6 +301,14 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         if (rsp == null) return false;
         economy = rsp.getProvider();
         return economy != null;
+    }
+
+    /**
+     * Saves the stats configuration
+     * // note: Persists StatStorage.yml to disk
+     */
+    public void saveStatsConfig() {
+        STAT_STORAGE_CONFIG.save();
     }
 
     /**
@@ -384,60 +337,22 @@ public class BountiesPlus extends JavaPlugin implements Listener {
      */
     public void reloadAllConfigs() {
         reloadConfig();
-        for (ConfigWrapper wrapper : configWrappers.values()) {
-            wrapper.reload();
-        }
+        CONFIG.reload();
+        MESSAGES_CONFIG.reload();
+        ITEM_VALUE_CONFIG.reload();
+        ITEMS_CONFIG.reload();
+        BOUNTY_TEAM_CHECK_CONFIG.reload();
+        STAT_STORAGE_CONFIG.reload();
+        BOUNTY_STORAGE_CONFIG.reload();
+        BOUNTY_GUI_CONFIG.reload();
+        TOP_GUI_CONFIG.reload();
+        CREATE_GUI_CONFIG.reload();
+        HUNTER_DEN_CONFIG.reload();
+        PREVIEW_GUI_CONFIG.reload();
+        ADD_ITEMS_CONFIG.reload();
+        BOUNTY_CANCEL_CONFIG.reload();
         loadBountySoundConfig();
         loadBountyGUITitle();
-    }
-
-    /**
-     * Saves all data to storage
-     * // note: Persists bounties, stats, and configurations
-     */
-    public void saveEverything() {
-        saveConfig();
-        for (ConfigWrapper wrapper : configWrappers.values()) {
-            wrapper.save();
-        }
-        if (shopGuiPlusIntegration != null) shopGuiPlusIntegration.cleanup();
-    }
-
-    /**
-     * Saves the stats configuration
-     * // note: Persists StatStorage.yml to disk
-     */
-    public void saveStatsConfig() {
-        ConfigWrapper statsWrapper = configWrappers.get("stats");
-        if (statsWrapper != null) {
-            statsWrapper.save();
-        }
-    }
-
-    /**
-     * Loads bounty sound configuration from config.yml
-     * // note: Sets up sound effects for bounty events
-     */
-    public void loadBountySoundConfig() {
-        FileConfiguration config = CONFIG.getConfig();
-        bountySoundEnabled = config.getBoolean("bounty-sound.enabled", true);
-        bountySoundName = config.getString("bounty-sound.sound", "ENTITY_BLAZE_SHOOT");
-        bountySoundVolume = (float) config.getDouble("bounty-sound.volume", 1.0);
-        bountySoundPitch = (float) config.getDouble("bounty-sound.pitch", 1.0);
-    }
-
-    /**
-     * Loads GUI title from BountyGUI.yml
-     * // note: Sets the title for the bounty GUI
-     */
-    public void loadBountyGUITitle() {
-        FileConfiguration config = BOUNTY_GUI_CONFIG.getConfig();
-        if (config == null) {
-            getLogger().warning("[DEBUG] Failed to load GUI title: GUIs/BountyGUI.yml is null");
-            bountyGUITitle = ChatColor.translateAlternateColorCodes('&', "&dBounty Hunter");
-        } else {
-            bountyGUITitle = ChatColor.translateAlternateColorCodes('&', config.getString("gui-title", "&dBounty Hunter"));
-        }
     }
 
     /**
@@ -445,18 +360,7 @@ public class BountiesPlus extends JavaPlugin implements Listener {
      * // note: Initializes and reloads BountyGUI.yml with slot validation
      */
     private FileConfiguration loadBountyGUIConfig() {
-        ConfigWrapper wrapper = configWrappers.get("GUIs/BountyGUI");
-        if (wrapper == null) {
-            debugManager.logWarning("[DEBUG] GUIs/BountyGUI ConfigWrapper not found, attempting to load");
-            try {
-                configWrappers.put("GUIs/BountyGUI", new ConfigWrapper("GUIs/BountyGUI"));
-                wrapper = configWrappers.get("GUIs/BountyGUI");
-            } catch (IOException e) {
-                debugManager.logWarning("[DEBUG] Failed to create GUIs/BountyGUI ConfigWrapper: " + e.getMessage());
-                return null;
-            }
-        }
-        FileConfiguration config = wrapper.getConfig();
+        FileConfiguration config = BOUNTY_GUI_CONFIG.getConfig();
         if (config == null) {
             debugManager.logWarning("[DEBUG] GUIs/BountyGUI configuration is null");
             return null;
@@ -487,12 +391,12 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         if (skullSlots.isEmpty()) {
             debugManager.logWarning("[DEBUG - BountyGUI] No valid bounty-skull-slots defined in BountyGUI.yml, using defaults");
             config.set("bounty-skull-slots.slots", Arrays.asList(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 23, 24, 25, 28, 29, 30, 31, 32, 33, 34));
-            wrapper.save();
+            BOUNTY_GUI_CONFIG.save();
         }
         if (searchSingleSlot < 0 || searchSingleSlot >= 54 || borderSlots.contains(searchSingleSlot) || pluginItemSlots.contains(searchSingleSlot) || skullSlots.contains(searchSingleSlot)) {
             debugManager.logWarning("[DEBUG - BountyGUI] Invalid or reserved search-results.single-slot " + searchSingleSlot + " in BountyGUI.yml, using default 22");
             config.set("search-results.single-slot", 22);
-            wrapper.save();
+            BOUNTY_GUI_CONFIG.save();
         }
 
         debugManager.logDebug("[DEBUG] Loaded BountyGUI.yml: contains Plugin-Items=" + config.contains("Plugin-Items"));
@@ -500,6 +404,51 @@ public class BountiesPlus extends JavaPlugin implements Listener {
             debugManager.logDebug("[DEBUG] Plugin-Items sections: " + config.getConfigurationSection("Plugin-Items").getKeys(false));
         }
         return config;
+    }
+
+    /**
+     * Saves all data to storage
+     * // note: Persists bounties, stats, and configurations
+     */
+    public void saveEverything() {
+        saveConfig();
+        CONFIG.save();
+        MESSAGES_CONFIG.save();
+        ITEM_VALUE_CONFIG.save();
+        ITEMS_CONFIG.save();
+        BOUNTY_TEAM_CHECK_CONFIG.save();
+        STAT_STORAGE_CONFIG.save();
+        BOUNTY_STORAGE_CONFIG.save();
+        BOUNTY_GUI_CONFIG.save();
+        TOP_GUI_CONFIG.save();
+        CREATE_GUI_CONFIG.save();
+        HUNTER_DEN_CONFIG.save();
+        PREVIEW_GUI_CONFIG.save();
+        ADD_ITEMS_CONFIG.save();
+        BOUNTY_CANCEL_CONFIG.save();
+        if (shopGuiPlusIntegration != null) shopGuiPlusIntegration.cleanup();
+    }
+
+    /**
+     * Returns an item to the player's inventory or drops it if full
+     * // note: Adds item to inventory or drops at player's location
+     */
+    public void returnItemToPlayer(Player player, ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            getLogger().info("Attempted to return null or AIR item to " + player.getName());
+            return;
+        }
+        HashMap<Integer, ItemStack> overflow = player.getInventory().addItem(item.clone());
+        player.updateInventory();
+        if (!overflow.isEmpty()) {
+            for (ItemStack overflowItem : overflow.values()) {
+                player.getWorld().dropItemNaturally(player.getLocation(), overflowItem);
+                getLogger().info("Dropped item " + overflowItem.getType().name() + " x" + overflowItem.getAmount() + " for " + player.getName() + " due to full inventory");
+            }
+            MessageUtils.sendFormattedMessage(player, "inventory-full");
+        } else {
+            getLogger().info("Returned item " + item.getType().name() + " x" + item.getAmount() + " to " + player.getName() + "'s inventory");
+        }
     }
 
     /**
@@ -534,24 +483,59 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     }
 
     /**
-     * Returns an item to the player's inventory or drops it if full
-     * // note: Adds item to inventory or drops at player's location
+     * Called when the plugin is disabled
+     * // note: Cleans up resources, saves data, and unregisters listeners
      */
-    public void returnItemToPlayer(Player player, ItemStack item) {
-        if (item == null || item.getType() == Material.AIR) {
-            getLogger().info("Attempted to return null or AIR item to " + player.getName());
-            return;
+    @Override
+    public void onDisable() {
+        // Clear filter states for shutdown
+        BountyGUI.clearPlayerShowOnlyOnline();
+        BountyGUI.clearPlayerFilterHighToLow();
+
+        // Cleanup Listeners
+        if (eventManager != null) {
+            eventManager.unregisterAll();
+            getLogger().info("Unregistered all event listeners.");
         }
-        HashMap<Integer, ItemStack> overflow = player.getInventory().addItem(item.clone());
-        player.updateInventory();
-        if (!overflow.isEmpty()) {
-            for (ItemStack overflowItem : overflow.values()) {
-                player.getWorld().dropItemNaturally(player.getLocation(), overflowItem);
-                getLogger().info("Dropped item " + overflowItem.getType().name() + " x" + overflowItem.getAmount() + " for " + player.getName() + " due to full inventory");
-            }
-            MessageUtils.sendFormattedMessage(player, "inventory-full");
+
+        // Save Data
+        saveEverything();
+        getLogger().info("Saved all plugin data.");
+
+        // Cleanup Resources
+        if (executorService != null) {
+            executorService.shutdown();
+            getLogger().info("Shutdown async executor service.");
+        }
+        if (mySQL != null && mySQL.isEnabled()) {
+            mySQL.closeConnection();
+            getLogger().info("Closed MySQL connection.");
+        }
+        getLogger().info("BountiesPlus fully disabled!");
+    }
+
+    /**
+     * Loads bounty sound configuration from config.yml
+     * // note: Sets up sound effects for bounty events
+     */
+    public void loadBountySoundConfig() {
+        bountySoundEnabled = getConfig().getBoolean("bounty-sound.enabled", true);
+        bountySoundName = getConfig().getString("bounty-sound.sound", "ENTITY_BLAZE_SHOOT");
+        bountySoundVolume = (float) getConfig().getDouble("bounty-sound.volume", 1.0);
+        bountySoundPitch = (float) getConfig().getDouble("bounty-sound.pitch", 1.0);
+    }
+
+    /**
+     * Loads GUI title from BountyGUI.yml
+     * // note: Sets the title for the bounty GUI
+     */
+    public void loadBountyGUITitle() {
+        FileConfiguration config = getBountyGUIConfig();
+        if (config == null) {
+            getLogger().warning("[DEBUG] Failed to load GUI title: GUIs/BountyGUI.yml is null");
+            bountyGUITitle = ChatColor.translateAlternateColorCodes('&', "&dBounty Hunter");
         } else {
-            getLogger().info("Returned item " + item.getType().name() + " x" + item.getAmount() + " to " + player.getName() + "'s inventory");
+            bountyGUITitle = ChatColor.translateAlternateColorCodes('&', config.getString("gui-title", "&dBounty Hunter"));
         }
     }
 
@@ -586,70 +570,57 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         BountyGUI.removePlayerFilterHighToLow(playerUUID);
     }
 
-    /**
-     * Cleans up expired bounties and data
-     * // note: Removes outdated bounties and performs periodic maintenance
-     */
-    private void cleanup() {
-        if (bountyManager != null) {
-            bountyManager.cleanupExpiredBounties();
-        }
-    }
-
     private class ConfigWrapper {
         private final String name;
         private final String fullPath;
         private File file;
         private FileConfiguration config;
-        // Constructor and other methods follow
-    }
 
-    // Inner Class
-    /**
-     * Initializes a configuration wrapper for a specific file
-     * // note: Loads or creates a config file with defaults
-     */
-    private ConfigWrapper(String configName) {
-        this.name = configName;
-        this.fullPath = configName;
-        this.file = new File(getDataFolder(), configName);
-        if (!file.exists()) {
-            try {
-                saveResource(configName, false);
-                if (BountiesPlus.this.debugManager != null) {
-                    BountiesPlus.this.debugManager.logDebug("[DEBUG - ConfigWrapper] Created default " + configName);
-                } else {
-                    getLogger().info("[DEBUG - ConfigWrapper] Created default " + configName + " (DebugManager not initialized)");
+        /**
+         * Initializes a configuration wrapper for a specific file
+         * // note: Loads or creates a config file with defaults
+         */
+        private ConfigWrapper(String configName) {
+            this.name = configName;
+            this.fullPath = configName;
+            this.file = new File(getDataFolder(), configName);
+            if (!file.exists()) {
+                try {
+                    saveResource(configName, false);
+                    if (BountiesPlus.this.debugManager != null) {
+                        BountiesPlus.this.debugManager.logDebug("[DEBUG - ConfigWrapper] Created default " + configName);
+                    } else {
+                        getLogger().info("[DEBUG - ConfigWrapper] Created default " + configName + " (DebugManager not initialized)");
+                    }
+                } catch (IllegalArgumentException e) {
+                    if (BountiesPlus.this.debugManager != null) {
+                        BountiesPlus.this.debugManager.logWarning("[DEBUG - ConfigWrapper] Failed to save default " + configName + ": " + e.getMessage());
+                    } else {
+                        getLogger().warning("[DEBUG - ConfigWrapper] Failed to save default " + configName + ": " + e.getMessage());
+                    }
                 }
-            } catch (IllegalArgumentException e) {
+            }
+            this.config = YamlConfiguration.loadConfiguration(file);
+            // Validate configuration integrity
+            if (config.getKeys(false).isEmpty()) {
                 if (BountiesPlus.this.debugManager != null) {
-                    BountiesPlus.this.debugManager.logWarning("[DEBUG - ConfigWrapper] Failed to save default " + configName + ": " + e.getMessage());
+                    BountiesPlus.this.debugManager.logWarning("[DEBUG - ConfigWrapper] " + configName + " is empty, reloading default");
                 } else {
-                    getLogger().warning("[DEBUG - ConfigWrapper] Failed to save default " + configName + ": " + e.getMessage());
+                    getLogger().warning("[DEBUG - ConfigWrapper] " + configName + " is empty, reloading default");
+                }
+                try {
+                    file.delete();
+                    saveResource(configName, false);
+                    this.config = YamlConfiguration.loadConfiguration(file);
+                } catch (IllegalArgumentException e) {
+                    if (BountiesPlus.this.debugManager != null) {
+                        BountiesPlus.this.debugManager.logWarning("[DEBUG - ConfigWrapper] Failed to reload default " + configName + ": " + e.getMessage());
+                    } else {
+                        getLogger().warning("[DEBUG - ConfigWrapper] Failed to reload default " + configName + ": " + e.getMessage());
+                    }
                 }
             }
         }
-        this.config = YamlConfiguration.loadConfiguration(file);
-        // Validate configuration integrity
-        if (config.getKeys(false).isEmpty()) {
-            if (BountiesPlus.this.debugManager != null) {
-                BountiesPlus.this.debugManager.logWarning("[DEBUG - ConfigWrapper] " + configName + " is empty, reloading default");
-            } else {
-                getLogger().warning("[DEBUG - ConfigWrapper] " + configName + " is empty, reloading default");
-            }
-            try {
-                file.delete();
-                saveResource(configName, false);
-                this.config = YamlConfiguration.loadConfiguration(file);
-            } catch (IllegalArgumentException e) {
-                if (BountiesPlus.this.debugManager != null) {
-                    BountiesPlus.this.debugManager.logWarning("[DEBUG - ConfigWrapper] Failed to reload default " + configName + ": " + e.getMessage());
-                } else {
-                    getLogger().warning("[DEBUG - ConfigWrapper] Failed to reload default " + configName + ": " + e.getMessage());
-                }
-            }
-        }
-    }
 
         /**
          * Reloads the configuration from disk
@@ -657,25 +628,31 @@ public class BountiesPlus extends JavaPlugin implements Listener {
          */
         public void reload() {
             try {
-                config = YamlConfiguration.loadConfiguration(configFile);
-                String resourcePath = configFile.getPath().replace(getDataFolder().getPath() + File.separator, "");
+                config = YamlConfiguration.loadConfiguration(file);
+                String resourcePath = fullPath;
                 InputStream defConfigStream = getResource(resourcePath);
                 if (defConfigStream != null) {
                     try (InputStreamReader reader = new InputStreamReader(defConfigStream)) {
                         YamlConfiguration defConfig = YamlConfiguration.loadConfiguration(reader);
                         config.setDefaults(defConfig);
-                        if (debugManager != null) {
-                            debugManager.logDebug("[DEBUG] Reloaded " + resourcePath + " with defaults from " + resourcePath);
+                        if (BountiesPlus.this.debugManager != null) {
+                            BountiesPlus.this.debugManager.logDebug("[DEBUG] Reloaded " + fullPath + " with defaults from " + resourcePath);
+                        } else {
+                            getLogger().info("[DEBUG] Reloaded " + fullPath + " with defaults from " + resourcePath);
                         }
                     }
                 } else {
-                    if (debugManager != null) {
-                        debugManager.logWarning("[DEBUG] No default resource found for " + resourcePath + " during reload");
+                    if (BountiesPlus.this.debugManager != null) {
+                        BountiesPlus.this.debugManager.logWarning("[DEBUG] No default resource found for " + resourcePath + " during reload");
+                    } else {
+                        getLogger().warning("[DEBUG] No default resource found for " + resourcePath + " during reload");
                     }
                 }
             } catch (Exception e) {
-                if (debugManager != null) {
-                    debugManager.logWarning("[DEBUG] Failed to reload " + configFile.getPath() + ": " + e.getMessage());
+                if (BountiesPlus.this.debugManager != null) {
+                    BountiesPlus.this.debugManager.logWarning("[DEBUG] Failed to reload " + fullPath + ": " + e.getMessage());
+                } else {
+                    getLogger().warning("[DEBUG] Failed to reload " + fullPath + ": " + e.getMessage());
                 }
             }
         }
@@ -686,13 +663,17 @@ public class BountiesPlus extends JavaPlugin implements Listener {
          */
         public void save() {
             try {
-                config.save(configFile);
-                if (debugManager != null) {
-                    debugManager.logDebug("[DEBUG] Saved configuration: " + configFile.getPath());
+                config.save(file);
+                if (BountiesPlus.this.debugManager != null) {
+                    BountiesPlus.this.debugManager.logDebug("[DEBUG] Saved configuration: " + fullPath);
+                } else {
+                    getLogger().info("[DEBUG] Saved configuration: " + fullPath);
                 }
             } catch (IOException e) {
-                if (debugManager != null) {
-                    debugManager.logWarning("[DEBUG] Could not save " + configFile.getPath() + ": " + e.getMessage());
+                if (BountiesPlus.this.debugManager != null) {
+                    BountiesPlus.this.debugManager.logWarning("[DEBUG] Could not save " + fullPath + ": " + e.getMessage());
+                } else {
+                    getLogger().warning("[DEBUG] Could not save " + fullPath + ": " + e.getMessage());
                 }
             }
         }
