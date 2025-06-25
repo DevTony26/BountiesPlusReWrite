@@ -596,6 +596,14 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         }
     }
 
+    private class ConfigWrapper {
+        private final String name;
+        private final String fullPath;
+        private File file;
+        private FileConfiguration config;
+        // Constructor and other methods follow
+    }
+
     // Inner Class
     /**
      * Initializes a configuration wrapper for a specific file
