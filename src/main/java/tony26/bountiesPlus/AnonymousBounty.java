@@ -46,22 +46,21 @@ public class AnonymousBounty {
         double taxAmount = session.getMoney() * taxRate;
 
         BountyManager manager = plugin.getBountyManager();
-        Bounty bounty = new Bounty();
-        bounty.setTargetUUID(targetUUID);
-        bounty.setSponsorUUID(player.getUniqueId());
-        bounty.setMoney(session.getMoney());
-        bounty.setExpPoints(session.getExpPoints());
-        bounty.setRewardItems(session.getRewardItems());
-        bounty.setAnonymous(true);
-        bounty.setTaxRate(taxRate);
-        bounty.setTaxAmount(taxAmount);
-        manager.addBounty(bounty);
+        Bounty bounty = new Bounty(plugin, targetUUID);
+        bounty.sponsorUUID = player.getUniqueId();
+        bounty.money = session.getMoney();
+        bounty.exp = session.getExp();
+        bounty.items = session.getItems();
+        bounty.isAnonymous = true;
+        bounty.taxRate = taxRate;
+        bounty.taxAmount = taxAmount;
+        manager.addBounty(targetUUID, player.getUniqueId(), (int) session.getMoney());
 
         FileConfiguration guiConfig = plugin.getCreateGUIConfig();
         FileConfiguration messagesConfig = plugin.getMessagesConfig();
 
         MessageUtils.sendFormattedMessage(player, "bounty-created");
-        session.clearSession();
+        session.clear();
         player.closeInventory();
 
         if (guiConfig.getBoolean("confirm-button.confirm-button-filler", false)) {
