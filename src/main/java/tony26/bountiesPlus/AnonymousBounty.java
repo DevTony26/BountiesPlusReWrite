@@ -41,27 +41,27 @@ public class AnonymousBounty {
      */
     public void createAnonymousBounty(Player player, UUID targetUUID) {
         BountyCreationSession session = BountyCreationSession.getOrCreateSession(player);
-        FileConfiguration config = plugin.getPluginConfig().getConfig();
+        FileConfiguration config = plugin.getConfig();
         double taxRate = config.getDouble("bounty-place-tax-rate", 0.0);
         double taxAmount = session.getMoney() * taxRate;
 
         BountyManager manager = plugin.getBountyManager();
-        manager.addBounty(Bounty.builder()
-                .targetUUID(targetUUID)
-                .sponsorUUID(player.getUniqueId())
-                .money(session.getMoney())
-                .xp(session.getExp())
-                .items(session.getItems())
-                .isAnonymous(true)
-                .taxRate(taxRate)
-                .taxAmount(taxAmount)
-                .build());
+        Bounty bounty = new Bounty();
+        bounty.setTargetUUID(targetUUID);
+        bounty.setSponsorUUID(player.getUniqueId());
+        bounty.setMoney(session.getMoney());
+        bounty.setExpPoints(session.getExpPoints());
+        bounty.setRewardItems(session.getRewardItems());
+        bounty.setAnonymous(true);
+        bounty.setTaxRate(taxRate);
+        bounty.setTaxAmount(taxAmount);
+        manager.addBounty(bounty);
 
-        FileConfiguration guiConfig = plugin.getCreateGUIConfig().getConfig();
-        FileConfiguration messagesConfig = plugin.getMessagesConfig().getConfig();
+        FileConfiguration guiConfig = plugin.getCreateGUIConfig();
+        FileConfiguration messagesConfig = plugin.getMessagesConfig();
 
         MessageUtils.sendFormattedMessage(player, "bounty-created");
-        session.clear();
+        session.clearSession();
         player.closeInventory();
 
         if (guiConfig.getBoolean("confirm-button.confirm-button-filler", false)) {

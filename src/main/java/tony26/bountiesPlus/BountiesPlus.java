@@ -280,7 +280,7 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         }
 
         // Initialize MySQL if enabled
-        if (CONFIG.getConfig().getBoolean("mysql.enabled", false)) {
+        if (getConfig().getBoolean("mysql.enabled", false)) {
             mySQL.connect();
             if (debugManager != null) {
                 debugManager.logDebug("[DEBUG - BountiesPlus] MySQL connection attempted");
