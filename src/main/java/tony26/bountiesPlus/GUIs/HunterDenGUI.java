@@ -55,14 +55,26 @@ public class HunterDenGUI implements InventoryHolder, Listener {
 
         // Verify configuration integrity
         if (!configFile.exists() || config.getConfigurationSection("Plugin-Items") == null) {
-            plugin.getDebugManager().logWarning("[DEBUG - HunterDenGUI] HuntersDen.yml is missing or invalid, reloading default");
+            if (plugin.getDebugManager() != null) {
+                plugin.getDebugManager().logWarning("[DEBUG - HunterDenGUI] HuntersDen.yml is missing or invalid, reloading default");
+            } else {
+                plugin.getLogger().warning("[DEBUG - HunterDenGUI] HuntersDen.yml is missing or invalid, reloading default");
+            }
             try {
-                if (configFile.exists()) configFile.delete(); // Remove invalid file
-                plugin.saveResource("GUIs/HuntersDen.yml", false); // Copy default
+                if (configFile.exists()) configFile.delete();
+                plugin.saveResource("GUIs/HuntersDen.yml", false);
                 config = YamlConfiguration.loadConfiguration(configFile);
-                plugin.getDebugManager().logDebug("[DEBUG - HunterDenGUI] Reloaded default HuntersDen.yml");
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logDebug("[DEBUG - HunterDenGUI] Reloaded default HuntersDen.yml");
+                } else {
+                    plugin.getLogger().info("[DEBUG - HunterDenGUI] Reloaded default HuntersDen.yml");
+                }
             } catch (IllegalArgumentException e) {
-                plugin.getDebugManager().logWarning("[DEBUG - HunterDenGUI] Failed to reload default HuntersDen.yml: " + e.getMessage());
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logWarning("[DEBUG - HunterDenGUI] Failed to reload default HuntersDen.yml: " + e.getMessage());
+                } else {
+                    plugin.getLogger().warning("[DEBUG - HunterDenGUI] Failed to reload default HuntersDen.yml: " + e.getMessage());
+                }
             }
         }
 

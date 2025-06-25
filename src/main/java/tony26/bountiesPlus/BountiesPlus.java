@@ -1,11 +1,11 @@
-// file: src/main/java/tony26/bountiesPlus/BountiesPlus.java
 package tony26.bountiesPlus;
-import java.io.IOException;
+
 import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
-import org.bukkit.configuration.InvalidConfigurationException;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -14,14 +14,12 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.command.PluginCommand;
-import org.bukkit.configuration.file.FileConfiguration;
-import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.scheduler.BukkitRunnable;
+import tony26.bountiesPlus.GUIs.BountyCancel;
+import tony26.bountiesPlus.GUIs.BountyGUI;
+import tony26.bountiesPlus.GUIs.TopGUI;
 import tony26.bountiesPlus.Items.*;
 import tony26.bountiesPlus.utils.*;
-import tony26.bountiesPlus.utils.ShopGuiPlusIntegration;
-import tony26.bountiesPlus.GUIs.BountyGUI;
 
 import java.io.*;
 import java.util.*;
@@ -30,6 +28,7 @@ import java.util.concurrent.Executors;
 
 public class BountiesPlus extends JavaPlugin implements Listener {
 
+    // Fields
     private static BountiesPlus instance;
     private static Economy economy;
     private BountyManager bountyManager;
@@ -47,6 +46,7 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     private ItemValueCalculator itemValueCalculator;
     private TablistManager tablistManager;
     private DebugManager debugManager;
+    private BountyStats bountyStats;
     private boolean bountySoundEnabled;
     private String bountySoundName;
     private float bountySoundVolume;
@@ -57,153 +57,88 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     private ExecutorService executorService;
     private EventManager eventManager;
     private ShopGuiPlusIntegration shopGuiPlusIntegration;
+    private ConfigWrapper CONFIG;
+    private ConfigWrapper MESSAGES_CONFIG;
+    private ConfigWrapper ITEM_VALUE_CONFIG;
+    private ConfigWrapper ITEMS_CONFIG;
+    private ConfigWrapper BOUNTY_TEAM_CHECK_CONFIG;
+    private ConfigWrapper STAT_STORAGE_CONFIG;
+    private ConfigWrapper BOUNTY_STORAGE_CONFIG;
+    private ConfigWrapper BOUNTY_GUI_CONFIG;
+    private ConfigWrapper TOP_GUI_CONFIG;
+    private ConfigWrapper CREATE_GUI_CONFIG;
+    private ConfigWrapper HUNTER_DEN_CONFIG;
+    private ConfigWrapper PREVIEW_GUI_CONFIG;
+    private ConfigWrapper ADD_ITEMS_CONFIG;
+    private ConfigWrapper BOUNTY_CANCEL_CONFIG;
 
-    public ShopGuiPlusIntegration getShopGuiPlusIntegration() {
-        return shopGuiPlusIntegration;
-    }
-
-    public EventManager getEventManager() {
-        return eventManager;
-    }
-
-    /**
-     * Initializes a configuration wrapper for a specific file
-     * // note: Loads or creates a config file with defaults
-     */
-    private class ConfigWrapper {
-        private final String name;
-        private final String fullPath;
-        private File file;
-        private FileConfiguration config;
-
-        /**
-         * Initializes a configuration wrapper for a specific file
-         * // note: Loads or creates a config file with defaults from resources/GUIs/
-         */
-        /**
-         * Initializes a configuration wrapper for a specific file
-         * // note: Loads or creates a config file with defaults from resources/
-         */
-        public ConfigWrapper(String name) throws IOException {
-            this.name = name;
-            // Normalize path for file system (e.g., Storage/BountyStorage -> Storage/BountyStorage.yml)
-            this.fullPath = name.endsWith(".yml") ? name : name + ".yml";
-            // Adjust resource path to include 'resources/' prefix as per JAR structure
-            String resourcePath = "resources/" + fullPath;
-            // Create file in appropriate subfolder (e.g., plugins/BountiesPlus/Storage/)
-            file = new File(getDataFolder(), fullPath.replace("/", File.separator));
-            File parentDir = file.getParentFile();
-            if (!parentDir.exists() && !parentDir.mkdirs()) {
-                debugManager.logWarning("[DEBUG] Failed to create directory: " + parentDir.getPath());
-                throw new IOException("Failed to create directory: " + parentDir.getPath());
-            }
-
-            // Check if file exists; if not, attempt to copy from resources
-            if (!file.exists()) {
-                InputStream resourceStream = getResource(resourcePath);
-                if (resourceStream == null) {
-                    debugManager.logWarning("[DEBUG] Resource not found in JAR: " + resourcePath + ", creating empty file for " + fullPath);
-                    if (!file.createNewFile()) {
-                        throw new IOException("Failed to create file: " + file.getPath());
-                    }
-                    config = new YamlConfiguration();
-                    // Initialize minimal default content for critical files
-                    if (fullPath.contains("BountyStorage")) {
-                        config.createSection("bounties");
-                        config.createSection("anonymous-bounties");
-                    } else if (fullPath.contains("StatStorage")) {
-                        config.createSection("players");
-                    }
-                    config.save(file);
-                } else {
-                    debugManager.logDebug("[DEBUG] Copying default resource for " + fullPath + " from " + resourcePath);
-                    // Copy resource to file
-                    try (FileOutputStream fos = new FileOutputStream(file)) {
-                        byte[] buffer = new byte[1024];
-                        int bytesRead;
-                        while ((bytesRead = resourceStream.read(buffer)) != -1) {
-                            fos.write(buffer, 0, bytesRead);
-                        }
-                        resourceStream.close();
-                    } catch (IOException e) {
-                        debugManager.logWarning("[DEBUG] Failed to copy resource " + resourcePath + ": " + e.getMessage());
-                        throw e;
-                    }
-                }
-            }
-
-            // Load the configuration
-            try {
-                config = YamlConfiguration.loadConfiguration(file);
-                debugManager.logDebug("[DEBUG] Successfully loaded configuration: " + fullPath);
-                // Load defaults if resource exists
-                InputStream defConfigStream = getResource(resourcePath);
-                if (defConfigStream != null) {
-                    try (InputStreamReader reader = new InputStreamReader(defConfigStream)) {
-                        YamlConfiguration defConfig = YamlConfiguration.loadConfiguration(reader);
-                        config.setDefaults(defConfig);
-                        debugManager.logDebug("[DEBUG] Set defaults for " + fullPath + " from resource");
-                    }
-                } else {
-                    debugManager.logWarning("[DEBUG] No default resource found for " + resourcePath);
-                }
-            } catch (Exception e) {
-                debugManager.logWarning("[DEBUG] Failed to parse " + fullPath + ": " + e.getMessage());
-                throw new IOException("Failed to parse " + fullPath + ": " + e.getMessage());
-            }
-        }
-
-        /**
-         * Reloads the configuration from disk
-         * // note: Refreshes the config file and reapplies defaults
-         */
-        public void reload() {
-            try {
-                config = YamlConfiguration.loadConfiguration(file);
-                String resourcePath = "resources/" + fullPath;
-                InputStream defConfigStream = getResource(resourcePath);
-                if (defConfigStream != null) {
-                    try (InputStreamReader reader = new InputStreamReader(defConfigStream)) {
-                        YamlConfiguration defConfig = YamlConfiguration.loadConfiguration(reader);
-                        config.setDefaults(defConfig);
-                        debugManager.logDebug("[DEBUG] Reloaded " + fullPath + " with defaults from " + resourcePath);
-                    }
-                } else {
-                    debugManager.logWarning("[DEBUG] No default resource found for " + resourcePath + " during reload");
-                }
-            } catch (Exception e) {
-                debugManager.logWarning("[DEBUG] Failed to reload " + fullPath + ": " + e.getMessage());
-            }
-        }
-
-        /**
-         * Saves the configuration to disk
-         * // note: Persists the current config state to file
-         */
-        public void save() {
-            try {
-                config.save(file);
-                debugManager.logDebug("[DEBUG] Saved configuration: " + fullPath);
-            } catch (IOException e) {
-                debugManager.logWarning("[DEBUG] Could not save " + fullPath + ": " + e.getMessage());
-            }
-        }
-
-        /**
-         * Gets the configuration object
-         * // note: Returns the loaded FileConfiguration
-         */
-        public FileConfiguration getConfig() {
-            return config;
-        }
-    }
-
+    // Getters
     public static BountiesPlus getInstance() {
         return instance;
     }
 
     public static Economy getEconomy() {
         return economy;
+    }
+
+    /**
+     * Retrieves the plugin configuration wrapper
+     * // note: Provides access to config.yml via ConfigWrapper
+     */
+    public ConfigWrapper getPluginConfig() {
+        return CONFIG;
+    }
+
+    public ConfigWrapper getMessagesConfig() {
+        return MESSAGES_CONFIG;
+    }
+
+    public ConfigWrapper getItemValueConfig() {
+        return ITEM_VALUE_CONFIG;
+    }
+
+    public ConfigWrapper getItemsConfig() {
+        return ITEMS_CONFIG;
+    }
+
+    public ConfigWrapper getTeamChecksConfig() {
+        return BOUNTY_TEAM_CHECK_CONFIG;
+    }
+
+    public ConfigWrapper getStatsConfig() {
+        return STAT_STORAGE_CONFIG;
+    }
+
+    public ConfigWrapper getBountiesConfig() {
+        return BOUNTY_STORAGE_CONFIG;
+    }
+
+    public ConfigWrapper getBountyGUIConfig() {
+        return BOUNTY_GUI_CONFIG;
+    }
+
+    public ConfigWrapper getTopGUIConfig() {
+        return TOP_GUI_CONFIG;
+    }
+
+    public ConfigWrapper getCreateGUIConfig() {
+        return CREATE_GUI_CONFIG;
+    }
+
+    public ConfigWrapper getHuntersDenConfig() {
+        return HUNTER_DEN_CONFIG;
+    }
+
+    public ConfigWrapper getPreviewGUIConfig() {
+        return PREVIEW_GUI_CONFIG;
+    }
+
+    public ConfigWrapper getAddItemsGUIConfig() {
+        return ADD_ITEMS_CONFIG;
+    }
+
+    public ConfigWrapper getBountyCancelGUIConfig() {
+        return BOUNTY_CANCEL_CONFIG;
     }
 
     public BountyManager getBountyManager() {
@@ -286,416 +221,134 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         return mySQL;
     }
 
-    /**
-     * Retrieves the BountyStorage configuration
-     * // note: Provides access to BountyStorage.yml for bounty data
-     */
-    public FileConfiguration getBountiesConfig() {
-        ConfigWrapper wrapper = configWrappers.get("Storage/BountyStorage");
-        if (wrapper == null) {
-            getLogger().warning("[DEBUG] Storage/BountyStorage ConfigWrapper not found, attempting to load");
-            try {
-                configWrappers.put("Storage/BountyStorage", new ConfigWrapper("Storage/BountyStorage"));
-                wrapper = configWrappers.get("Storage/BountyStorage");
-            } catch (IOException e) {
-                getLogger().warning("[DEBUG] Failed to create Storage/BountyStorage ConfigWrapper: " + e.getMessage());
-                return null;
-            }
-        }
-        FileConfiguration config = wrapper.getConfig();
-        if (config == null) {
-            getLogger().warning("[DEBUG] Storage/BountyStorage configuration is null");
-        }
-        return config;
+    public ExecutorService getExecutorService() {
+        return executorService;
+    }
+
+    public EventManager getEventManager() {
+        return eventManager;
+    }
+
+    public ShopGuiPlusIntegration getShopGuiPlusIntegration() {
+        return shopGuiPlusIntegration;
     }
 
     /**
-     * Retrieves the stats configuration
-     * // note: Provides access to StatStorage.yml
-     */
-    public FileConfiguration getStatsConfig() {
-        ConfigWrapper wrapper = configWrappers.get("Storage/StatStorage");
-        if (wrapper == null) {
-            getLogger().warning("[DEBUG] Storage/StatStorage ConfigWrapper not found, attempting to load");
-            try {
-                configWrappers.put("Storage/StatStorage", new ConfigWrapper("Storage/StatStorage"));
-                wrapper = configWrappers.get("Storage/StatStorage");
-            } catch (IOException e) {
-                getLogger().warning("[DEBUG] Failed to create Storage/StatStorage ConfigWrapper: " + e.getMessage());
-                return null;
-            }
-        }
-        FileConfiguration config = wrapper.getConfig();
-        if (config == null) {
-            getLogger().warning("[DEBUG] Storage/StatStorage configuration is null");
-        }
-        return config;
-    }
-
-    /**
-     * Retrieves the messages configuration
-     * // note: Provides access to messages.yml for player messages
-     */
-    public FileConfiguration getMessagesConfig() {
-        ConfigWrapper wrapper = configWrappers.get("messages");
-        return wrapper != null ? wrapper.getConfig() : null;
-    }
-
-    /**
-     * Retrieves the BountyGUI configuration
-     * // note: Provides access to GUIs/BountyGUI.yml for GUI settings
-     */
-    public FileConfiguration getBountyGUIConfig() {
-        ConfigWrapper wrapper = configWrappers.get("GUIs/BountyGUI");
-        if (wrapper == null) {
-            getLogger().warning("[DEBUG] GUIs/BountyGUI ConfigWrapper not found, attempting to load");
-            try {
-                configWrappers.put("GUIs/BountyGUI", new ConfigWrapper("GUIs/BountyGUI"));
-                wrapper = configWrappers.get("GUIs/BountyGUI");
-            } catch (IOException e) {
-                getLogger().warning("[DEBUG] Failed to create GUIs/BountyGUI ConfigWrapper: " + e.getMessage());
-                return null;
-            }
-        }
-        FileConfiguration config = wrapper.getConfig();
-        if (config == null) {
-            getLogger().warning("[DEBUG] GUIs/BountyGUI configuration is null");
-        }
-        return config;
-    }
-
-    /**
-     * Retrieves the CreateGUI configuration
-     * // note: Provides access to GUIs/CreateGUI.yml for GUI settings
-     */
-    public FileConfiguration getCreateGUIConfig() {
-        ConfigWrapper wrapper = configWrappers.get("GUIs/CreateGUI");
-        if (wrapper == null) {
-            getLogger().warning("[DEBUG] GUIs/CreateGUI ConfigWrapper not found, attempting to load");
-            try {
-                configWrappers.put("GUIs/CreateGUI", new ConfigWrapper("GUIs/CreateGUI"));
-                wrapper = configWrappers.get("GUIs/CreateGUI");
-            } catch (IOException e) {
-                getLogger().warning("[DEBUG] Failed to create GUIs/CreateGUI ConfigWrapper: " + e.getMessage());
-                return null;
-            }
-        }
-        FileConfiguration config = wrapper.getConfig();
-        if (config == null) {
-            getLogger().warning("[DEBUG] GUIs/CreateGUI configuration is null");
-        }
-        return config;
-    }
-
-    /**
-     * Retrieves the PreviewGUI configuration
-     * // note: Provides access to GUIs/PreviewGUI.yml for GUI settings
-     */
-    public FileConfiguration getPreviewGUIConfig() {
-        ConfigWrapper wrapper = configWrappers.get("GUIs/PreviewGUI");
-        if (wrapper == null) {
-            getLogger().warning("[DEBUG] GUIs/PreviewGUI ConfigWrapper not found, attempting to load");
-            try {
-                configWrappers.put("GUIs/PreviewGUI", new ConfigWrapper("GUIs/PreviewGUI"));
-                wrapper = configWrappers.get("GUIs/PreviewGUI");
-            } catch (IOException e) {
-                getLogger().warning("[DEBUG] Failed to create GUIs/PreviewGUI ConfigWrapper: " + e.getMessage());
-                return null;
-            }
-        }
-        FileConfiguration config = wrapper.getConfig();
-        if (config == null) {
-            getLogger().warning("[DEBUG] GUIs/PreviewGUI configuration is null");
-        }
-        return config;
-    }
-
-    /**
-     * Retrieves the AddItemsGUI configuration
-     * // note: Provides access to GUIs/AddItemsGUI.yml for GUI settings
-     */
-    public FileConfiguration getAddItemsGUIConfig() {
-        ConfigWrapper wrapper = configWrappers.get("GUIs/AddItemsGUI");
-        if (wrapper == null) {
-            getLogger().warning("[DEBUG] GUIs/AddItemsGUI ConfigWrapper not found, attempting to load");
-            try {
-                configWrappers.put("GUIs/AddItemsGUI", new ConfigWrapper("GUIs/AddItemsGUI"));
-                wrapper = configWrappers.get("GUIs/AddItemsGUI");
-            } catch (IOException e) {
-                getLogger().warning("[DEBUG] Failed to create GUIs/AddItemsGUI ConfigWrapper: " + e.getMessage());
-                return null;
-            }
-        }
-        FileConfiguration config = wrapper.getConfig();
-        if (config == null) {
-            getLogger().warning("[DEBUG] GUIs/AddItemsGUI configuration is null");
-        }
-        return config;
-    }
-
-    /**
-     * Retrieves the HuntersDen configuration
-     * // note: Provides access to GUIs/HuntersDen.yml for GUI settings
-     */
-    public FileConfiguration getHuntersDenConfig() {
-        ConfigWrapper wrapper = configWrappers.get("GUIs/HuntersDen");
-        if (wrapper == null) {
-            getLogger().warning("[DEBUG] GUIs/HuntersDen ConfigWrapper not found, attempting to load");
-            try {
-                configWrappers.put("GUIs/HuntersDen", new ConfigWrapper("GUIs/HuntersDen"));
-                wrapper = configWrappers.get("GUIs/HuntersDen");
-            } catch (IOException e) {
-                getLogger().warning("[DEBUG] Failed to create GUIs/HuntersDen ConfigWrapper: " + e.getMessage());
-                return null;
-            }
-        }
-        FileConfiguration config = wrapper.getConfig();
-        if (config == null) {
-            getLogger().warning("[DEBUG] GUIs/HuntersDen configuration is null");
-        }
-        return config;
-    }
-
-    /**
-     * Retrieves the BountyCancelGUI configuration
-     * // note: Provides access to GUIs/BountyCancelGUI.yml for GUI settings
-     */
-    public FileConfiguration getBountyCancelGUIConfig() {
-        ConfigWrapper wrapper = configWrappers.get("GUIs/BountyCancelGUI");
-        if (wrapper == null) {
-            getLogger().warning("[DEBUG] GUIs/BountyCancelGUI ConfigWrapper not found, attempting to load");
-            try {
-                configWrappers.put("GUIs/BountyCancelGUI", new ConfigWrapper("GUIs/BountyCancelGUI"));
-                wrapper = configWrappers.get("GUIs/BountyCancelGUI");
-            } catch (IOException e) {
-                getLogger().warning("[DEBUG] Failed to create GUIs/BountyCancelGUI ConfigWrapper: " + e.getMessage());
-                return null;
-            }
-        }
-        FileConfiguration config = wrapper.getConfig();
-        if (config == null) {
-            getLogger().warning("[DEBUG] GUIs/BountyCancelGUI configuration is null");
-        }
-        return config;
-    }
-
-    /**
-     * Retrieves the ItemValue configuration
-     * // note: Provides access to ItemValue.yml for item pricing
-     */
-    public FileConfiguration getItemValueConfig() {
-        ConfigWrapper wrapper = configWrappers.get("ItemValue");
-        return wrapper != null ? wrapper.getConfig() : null;
-    }
-
-    /**
-     * Retrieves the items configuration
-     * // note: Provides access to items.yml for item settings
-     */
-    public FileConfiguration getItemsConfig() {
-        ConfigWrapper wrapper = configWrappers.get("items");
-        return wrapper != null ? wrapper.getConfig() : null;
-    }
-
-    /**
-     * Retrieves the TopGUI configuration
-     * // note: Provides access to TopGUI.yml for GUI settings
-     */
-    public FileConfiguration getTopGUIConfig() {
-        ConfigWrapper wrapper = configWrappers.get("TopGUI");
-        return wrapper != null ? wrapper.getConfig() : null;
-    }
-
-    /**
-     * Retrieves the BountyTeamChecks configuration
-     * // note: Provides access to BountyTeamChecks.yml for team settings
-     */
-    public FileConfiguration getTeamChecksConfig() {
-        ConfigWrapper wrapper = configWrappers.get("BountyTeamChecks");
-        return wrapper != null ? wrapper.getConfig() : null;
-    }
-
-    /**
-     * Called when the plugin is enabled
-     * // note: Initializes configurations, managers, listeners, commands, and MySQL
+     * Initializes the plugin on server startup
+     * // note: Sets up DebugManager, configurations, managers, commands, and listeners
      */
     @Override
     public void onEnable() {
-        // Clear filter states for reload
-        BountyGUI.clearPlayerShowOnlyOnline();
-        BountyGUI.clearPlayerFilterHighToLow();
-
-        // Plugin Instance and Core Setup
         instance = this;
 
-        // Configuration Files
-        String[] configNames = {
-                "config", "Storage/BountyStorage", "Storage/StatStorage", "messages", "items", "ItemValue",
-                "GUIs/BountyGUI", "GUIs/CreateGUI", "GUIs/PreviewGUI", "GUIs/TopGUI",
-                "GUIs/AddItemsGUI", "GUIs/HuntersDen", "BountyTeamChecks", "GUIs/BountyCancelGUI"
-        };
-        List<String> failedConfigs = new ArrayList<>();
-        int loadedConfigs = 0;
-        for (String name : configNames) {
-            try {
-                configWrappers.put(name, new ConfigWrapper(name));
-                loadedConfigs++;
-                getLogger().info("[DEBUG] Loaded configuration: " + name + ".yml");
-            } catch (IOException e) {
-                failedConfigs.add(name + ".yml");
-                getLogger().warning("[DEBUG] Failed to load " + name + ".yml: " + e.getMessage());
-            }
-        }
-
-        // Clean up incorrectly placed BountyStorage.yml and StatStorage.yml in root directory
-        File rootBountyStorage = new File(getDataFolder(), "BountyStorage.yml");
-        File rootStatStorage = new File(getDataFolder(), "StatStorage.yml");
-        if (rootBountyStorage.exists()) {
-            if (rootBountyStorage.delete()) {
-                getLogger().info("[DEBUG] Deleted misplaced BountyStorage.yml from plugins/BountiesPlus/");
-            } else {
-                getLogger().warning("[DEBUG] Failed to delete misplaced BountyStorage.yml from plugins/BountiesPlus/");
-            }
-        }
-        if (rootStatStorage.exists()) {
-            if (rootStatStorage.delete()) {
-                getLogger().info("[DEBUG] Deleted misplaced StatStorage.yml from plugins/BountiesPlus/");
-            } else {
-                getLogger().warning("[DEBUG] Failed to delete misplaced StatStorage.yml from plugins/BountiesPlus/");
-            }
-        }
-
-        // Check for critical config failures
-        if (failedConfigs.contains("Storage/BountyStorage.yml") || failedConfigs.contains("messages.yml")) {
-            getLogger().severe("[DEBUG] Critical config(s) failed to load: " + String.join(", ", failedConfigs) + ", disabling plugin!");
-            getServer().getPluginManager().disablePlugin(this);
-            return;
-        }
-
-        // Check for money and shop sections in config.yml
-        if (!getConfig().contains("money")) {
-            getLogger().warning("[DEBUG] 'money' section missing in config.yml! Using defaults for allow-zero-dollar-bounties, min-bounty-amount, and max-bounty-amount.");
-        }
-        if (!getConfig().contains("shop")) {
-            getLogger().warning("[DEBUG] 'shop' section missing in config.yml! Using defaults for enable-shop, allow-expired-skulls, and use-shop-gui-plus.");
-        }
-
-        // Message Utility
-        MessageUtils.initialize(this);
-
-        // Core Managers and Services
+        // Initialize DebugManager first
         debugManager = new DebugManager(this);
-        executorService = Executors.newFixedThreadPool(4);
+
+        // Initialize configuration files
+        CONFIG = new ConfigWrapper("config.yml");
+        MESSAGES_CONFIG = new ConfigWrapper("messages.yml");
+        ITEM_VALUE_CONFIG = new ConfigWrapper("ItemValue.yml");
+        ITEMS_CONFIG = new ConfigWrapper("items.yml");
+        BOUNTY_TEAM_CHECK_CONFIG = new ConfigWrapper("BountyTeamChecks.yml");
+        STAT_STORAGE_CONFIG = new ConfigWrapper("Storage/StatStorage.yml");
+        BOUNTY_STORAGE_CONFIG = new ConfigWrapper("Storage/BountyStorage.yml");
+        BOUNTY_GUI_CONFIG = new ConfigWrapper("GUIs/BountyGUI.yml");
+        TOP_GUI_CONFIG = new ConfigWrapper("GUIs/TopGUI.yml");
+        CREATE_GUI_CONFIG = new ConfigWrapper("GUIs/CreateGUI.yml");
+        HUNTER_DEN_CONFIG = new ConfigWrapper("GUIs/HuntersDen.yml");
+        PREVIEW_GUI_CONFIG = new ConfigWrapper("GUIs/PreviewGUI.yml");
+        ADD_ITEMS_CONFIG = new ConfigWrapper("GUIs/AddItemsGUI.yml");
+        BOUNTY_CANCEL_CONFIG = new ConfigWrapper("GUIs/BountyCancelGUI.yml");
+
+        // Log config initialization
+        if (debugManager != null) {
+            debugManager.logDebug("[DEBUG - BountiesPlus] All configuration files initialized");
+        } else {
+            getLogger().info("[DEBUG - BountiesPlus] All configuration files initialized");
+        }
+
+        // Initialize managers
         eventManager = new EventManager(this);
-
-        // MySQL Database
-        mySQL = new MySQL(this);
-        mySQL.initialize();
-        mySQL.migrateData();
-        mySQL.migrateStatsData();
-
-        // Gameplay Managers
-        taxManager = new TaxManager(this);
-        itemValueCalculator = new ItemValueCalculator(this);
         List<String> warnings = new ArrayList<>();
         bountyManager = new BountyManager(this, warnings);
-        anonymousBounty = new AnonymousBounty(this);
-        frenzy = new Frenzy(this, warnings);
-        boostedBounty = new BoostedBounty(this, warnings);
-        getLogger().info("[DEBUG] BoostedBounty initialized: " + (boostedBounty != null));
+        taxManager = new TaxManager(this);
+        itemValueCalculator = new ItemValueCalculator(this);
         tablistManager = new TablistManager(this, eventManager);
-        if (tablistManager == null) {
-            warnings.add("Failed to initialize TablistManager!");
-        }
+        anonymousBounty = new AnonymousBounty(this);
+        boostedBounty = new BoostedBounty(this, warnings);
+        frenzy = new Frenzy(this, warnings);
+        bountyStats = new BountyStats(this);
+        mySQL = new MySQL(this);
 
-        // ShopGUIPlus Integration
-        shopGuiPlusIntegration = new ShopGuiPlusIntegration(this);
+        // Register commands and tab completer
+        BountyCommand bountyCommand = new BountyCommand(this);
+        getCommand("bounty").setExecutor(bountyCommand);
+        getCommand("bounty").setTabCompleter(new BountyTabCompleter());
 
-        // Item Systems
-        uav = new UAV(this, eventManager);
-        tracker = new Tracker(this, eventManager);
-        jammer = new Jammer(this, eventManager);
-        manualBoost = new ManualBoost(this, eventManager);
-        manualFrenzy = new ManualFrenzy(this, eventManager);
-        reverseBounty = new ReverseBounty(this, eventManager);
-        decreaseTime = new DecreaseTime(this, eventManager);
+        // Register listeners
+        eventManager.register(new BountyCreationChatListener(this, eventManager));
+        eventManager.register(new PlayerDeathListener(this, eventManager));
+        eventManager.register(new TopGUI(this, eventManager));
+        eventManager.register(new BountyGUI(this, eventManager, null));
+        eventManager.register(new BountyCancel(this, eventManager));
 
-        // Event Listeners
-        eventManager.registerGlobalListeners();
-        eventManager.register(this);
-
-        // Commands
-        PluginCommand bountyCommand = getCommand("bounty");
-        if (bountyCommand != null) {
-            bountyCommand.setExecutor(new BountyCommand(this));
-            bountyCommand.setTabCompleter(new BountyTabCompleter());
-        } else {
-            warnings.add("Failed to register bounty command!");
-        }
-
-        // External Dependencies
-        boolean placeholderAPIHooked = false;
-        if (getServer().getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+        // Initialize PlaceholderAPI integration
+        if (Bukkit.getPluginManager().getPlugin("PlaceholderAPI") != null) {
             new Placeholders(this).register();
-            placeholderAPIHooked = true;
-        } else {
-            warnings.add("PlaceholderAPI not found; placeholders will not work.");
-        }
-
-        boolean economyHooked = setupEconomy();
-        if (!economyHooked) {
-            warnings.add("No economy plugin found. Some features may not work.");
-        }
-
-        // Add skull config warning
-        if (!getConfig().contains("bounty-skull")) {
-            warnings.add("Bounty skull configuration not found in config.yml! Using defaults.");
-        }
-
-        // Final Setup
-        reloadEverything();
-
-        // Console Initialization Message
-        boolean useAnsi = MessageUtils.isAnsiSupported();
-        String green = useAnsi ? "\u001B[92m" : "";
-        String red = useAnsi ? "\u001B[91m" : "";
-        String white = useAnsi ? "\u001B[97m" : "";
-        String reset = useAnsi ? "\u001B[0m" : "";
-        List<String> initMessages = new ArrayList<>(Arrays.asList(
-                "BountiesPlus enabling...",
-                "----------------------------------------",
-                "",
-                green + "BountiesPlus Enabled" + reset,
-                green + "   MySQL:" + reset,
-                white + "      - MySQL Status: " + (mySQL.isEnabled() ? green + "Enabled" : red + "Disabled") + reset,
-                white + "      - PlaceholderAPI " + (placeholderAPIHooked ? green + "Found - Expansion Registered" : red + "Not Found") + reset,
-                green + "   Dependencies:" + reset,
-                white + "      - Economy support " + (economyHooked ? green + "enabled with Vault" : red + "disabled") + reset,
-                white + "      - PlaceholderAPI " + (placeholderAPIHooked ? green + "Found - Expansion Registered" : red + "Not Found") + reset,
-                white + "      - ShopGUIPlus " + (shopGuiPlusIntegration.isEnabled() ? green + "Found - Integration Enabled" : red + "Not Found or Disabled") + reset,
-                green + "   Config Files:" + reset,
-                failedConfigs.isEmpty()
-                        ? white + "      - " + green + "All config files loaded (" + loadedConfigs + "/" + configNames.length + ")" + reset
-                        : white + "      - " + red + loadedConfigs + "/" + configNames.length + " files loaded, Missing: " + String.join(", ", failedConfigs) + reset,
-                red + "   Warnings:" + reset,
-                warnings.isEmpty() ? white + "      - None" + reset : ""
-        ));
-        initMessages.addAll(warnings.stream().map(w -> white + "      - " + red + w + reset).toList());
-        initMessages.addAll(Arrays.asList(
-                "",
-                green + "Join my Discord for Support" + reset,
-                white + "   - https://discord.gg/U8WMbB4n" + reset,
-                "",
-                "----------------------------------------"
-        ));
-
-        for (String message : initMessages) {
-            if (!message.isEmpty()) {
-                getLogger().info(message);
-            } else {
-                getLogger().info("");
+            if (debugManager != null) {
+                debugManager.logDebug("[DEBUG - BountiesPlus] PlaceholderAPI hooked successfully");
             }
         }
+
+        // Initialize ShopGUIPlus integration
+        if (Bukkit.getPluginManager().getPlugin("ShopGUIPlus") != null) {
+            shopGuiPlusIntegration = new ShopGuiPlusIntegration(this);
+            if (debugManager != null) {
+                debugManager.logDebug("[DEBUG - BountiesPlus] ShopGUIPlus hooked successfully");
+            }
+        }
+
+        // Initialize MySQL if enabled
+        if (CONFIG.getConfig().getBoolean("mysql.enabled", false)) {
+            mySQL.connect();
+            if (debugManager != null) {
+                debugManager.logDebug("[DEBUG - BountiesPlus] MySQL connection attempted");
+            }
+        }
+
+        // Start cleanup task
+        Bukkit.getScheduler().runTaskTimer(this, () -> bountyManager.cleanup(warnings), 0L, 20L * 60L * 5L);
+    }
+
+    /**
+     * Called when the plugin is disabled
+     * // note: Cleans up resources, saves data, and unregisters listeners
+     */
+    @Override
+    public void onDisable() {
+        // Clear filter states for shutdown
+        BountyGUI.clearPlayerShowOnlyOnline();
+
+        // Cleanup Listeners
+        if (eventManager != null) {
+            eventManager.unregisterAll();
+            getLogger().info("Unregistered all event listeners.");
+        }
+
+        // Save Data
+        saveEverything();
+        getLogger().info("Saved all plugin data.");
+
+        // Cleanup Resources
+        if (executorService != null) {
+            executorService.shutdown();
+            getLogger().info("Shutdown async executor service.");
+        }
+        if (mySQL != null && mySQL.isEnabled()) {
+            mySQL.closeConnection();
+            getLogger().info("Closed MySQL connection.");
+        }
+        getLogger().info("BountiesPlus fully disabled!");
     }
 
     /**
@@ -710,25 +363,13 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         return economy != null;
     }
 
-
-    /**
-     * Saves the stats configuration
-     * // note: Persists StatStorage.yml to disk
-     */
-    public void saveStatsConfig() {
-        ConfigWrapper statsWrapper = configWrappers.get("stats");
-        if (statsWrapper != null) {
-            statsWrapper.save();
-        }
-    }
-
     /**
      * Reloads all configurations and data
      * // note: Refreshes configs, MySQL, and all systems
      */
     public void reloadEverything() {
         List<String> warnings = new ArrayList<>();
-        reloadAllConfigs(); // Reloads all configs via configWrappers
+        reloadAllConfigs();
         mySQL.initialize();
         mySQL.migrateData();
         mySQL.migrateStatsData();
@@ -753,6 +394,55 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         }
         loadBountySoundConfig();
         loadBountyGUITitle();
+    }
+
+    /**
+     * Saves all data to storage
+     * // note: Persists bounties, stats, and configurations
+     */
+    public void saveEverything() {
+        saveConfig();
+        for (ConfigWrapper wrapper : configWrappers.values()) {
+            wrapper.save();
+        }
+        if (shopGuiPlusIntegration != null) shopGuiPlusIntegration.cleanup();
+    }
+
+    /**
+     * Saves the stats configuration
+     * // note: Persists StatStorage.yml to disk
+     */
+    public void saveStatsConfig() {
+        ConfigWrapper statsWrapper = configWrappers.get("stats");
+        if (statsWrapper != null) {
+            statsWrapper.save();
+        }
+    }
+
+    /**
+     * Loads bounty sound configuration from config.yml
+     * // note: Sets up sound effects for bounty events
+     */
+    public void loadBountySoundConfig() {
+        FileConfiguration config = CONFIG.getConfig();
+        bountySoundEnabled = config.getBoolean("bounty-sound.enabled", true);
+        bountySoundName = config.getString("bounty-sound.sound", "ENTITY_BLAZE_SHOOT");
+        bountySoundVolume = (float) config.getDouble("bounty-sound.volume", 1.0);
+        bountySoundPitch = (float) config.getDouble("bounty-sound.pitch", 1.0);
+    }
+
+    /**
+     * Loads GUI title from BountyGUI.yml
+     * // note: Sets the title for the bounty GUI
+     */
+    public void loadBountyGUITitle() {
+        FileConfiguration config = BOUNTY_GUI_CONFIG.getConfig();
+        if (config == null) {
+            getLogger().warning("[DEBUG] Failed to load GUI title: GUIs/BountyGUI.yml is null");
+            bountyGUITitle = ChatColor.translateAlternateColorCodes('&', "&dBounty Hunter");
+        } else {
+            bountyGUITitle = ChatColor.translateAlternateColorCodes('&', config.getString("gui-title", "&dBounty Hunter"));
+        }
     }
 
     /**
@@ -818,39 +508,6 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     }
 
     /**
-     * Saves all data to storage
-     * // note: Persists bounties, stats, and configurations
-     */
-    public void saveEverything() {
-        saveConfig();
-        for (ConfigWrapper wrapper : configWrappers.values()) {
-            wrapper.save();
-        }
-        if (shopGuiPlusIntegration != null) shopGuiPlusIntegration.cleanup();
-    }
-    /**
-     * Returns an item to the player's inventory or drops it if full
-     * // note: Adds item to inventory or drops at player's location
-     */
-    public void returnItemToPlayer(Player player, ItemStack item) {
-        if (item == null || item.getType() == Material.AIR) {
-            getLogger().info("Attempted to return null or AIR item to " + player.getName());
-            return;
-        }
-        HashMap<Integer, ItemStack> overflow = player.getInventory().addItem(item.clone());
-        player.updateInventory();
-        if (!overflow.isEmpty()) {
-            for (ItemStack overflowItem : overflow.values()) {
-                player.getWorld().dropItemNaturally(player.getLocation(), overflowItem);
-                getLogger().info("Dropped item " + overflowItem.getType().name() + " x" + overflowItem.getAmount() + " for " + player.getName() + " due to full inventory");
-            }
-            MessageUtils.sendFormattedMessage(player, "inventory-full");
-        } else {
-            getLogger().info("Returned item " + item.getType().name() + " x" + item.getAmount() + " to " + player.getName() + "'s inventory");
-        }
-    }
-
-    /**
      * Registers placeholders with PlaceholderAPI, with delayed retry for load order
      * // note: Initializes PlaceholderAPI integration with retry mechanism
      */
@@ -882,67 +539,24 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     }
 
     /**
-     * Gets the executor service for asynchronous tasks
-     * // note: Returns the thread pool used for running async database operations
+     * Returns an item to the player's inventory or drops it if full
+     * // note: Adds item to inventory or drops at player's location
      */
-    public ExecutorService getExecutorService() {
-        return executorService;
-    }
-
-    /**
-     * Called when the plugin is disabled
-     * // note: Cleans up resources, saves data, and unregisters listeners
-     */
-    @Override
-    public void onDisable() {
-        // Clear filter states for shutdown
-        BountyGUI.clearPlayerShowOnlyOnline();
-        BountyGUI.clearPlayerFilterHighToLow();
-
-        // Cleanup Listeners
-        if (eventManager != null) {
-            eventManager.unregisterAll();
-            getLogger().info("Unregistered all event listeners.");
+    public void returnItemToPlayer(Player player, ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            getLogger().info("Attempted to return null or AIR item to " + player.getName());
+            return;
         }
-
-        // Save Data
-        saveEverything();
-        getLogger().info("Saved all plugin data.");
-
-        // Cleanup Resources
-        if (executorService != null) {
-            executorService.shutdown();
-            getLogger().info("Shutdown async executor service.");
-        }
-        if (mySQL != null && mySQL.isEnabled()) {
-            mySQL.closeConnection();
-            getLogger().info("Closed MySQL connection.");
-        }
-        getLogger().info("BountiesPlus fully disabled!");
-    }
-
-    /**
-     * Loads bounty sound configuration from config.yml
-     * // note: Sets up sound effects for bounty events
-     */
-    public void loadBountySoundConfig() {
-        bountySoundEnabled = getConfig().getBoolean("bounty-sound.enabled", true);
-        bountySoundName = getConfig().getString("bounty-sound.sound", "ENTITY_BLAZE_SHOOT");
-        bountySoundVolume = (float) getConfig().getDouble("bounty-sound.volume", 1.0);
-        bountySoundPitch = (float) getConfig().getDouble("bounty-sound.pitch", 1.0);
-    }
-
-    /**
-     * Loads GUI title from BountyGUI.yml
-     * // note: Sets the title for the bounty GUI
-     */
-    public void loadBountyGUITitle() {
-        FileConfiguration config = getBountyGUIConfig();
-        if (config == null) {
-            getLogger().warning("[DEBUG] Failed to load GUI title: GUIs/BountyGUI.yml is null");
-            bountyGUITitle = ChatColor.translateAlternateColorCodes('&', "&dBounty Hunter");
+        HashMap<Integer, ItemStack> overflow = player.getInventory().addItem(item.clone());
+        player.updateInventory();
+        if (!overflow.isEmpty()) {
+            for (ItemStack overflowItem : overflow.values()) {
+                player.getWorld().dropItemNaturally(player.getLocation(), overflowItem);
+                getLogger().info("Dropped item " + overflowItem.getType().name() + " x" + overflowItem.getAmount() + " for " + player.getName() + " due to full inventory");
+            }
+            MessageUtils.sendFormattedMessage(player, "inventory-full");
         } else {
-            bountyGUITitle = ChatColor.translateAlternateColorCodes('&', config.getString("gui-title", "&dBounty Hunter"));
+            getLogger().info("Returned item " + item.getType().name() + " x" + item.getAmount() + " to " + player.getName() + "'s inventory");
         }
     }
 
@@ -975,5 +589,123 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         UUID playerUUID = event.getPlayer().getUniqueId();
         BountyGUI.removePlayerShowOnlyOnline(playerUUID);
         BountyGUI.removePlayerFilterHighToLow(playerUUID);
+    }
+
+    /**
+     * Cleans up expired bounties and data
+     * // note: Removes outdated bounties and performs periodic maintenance
+     */
+    private void cleanup() {
+        if (bountyManager != null) {
+            bountyManager.cleanupExpiredBounties();
+        }
+    }
+
+    // Inner Class
+    /**
+     * Initializes a configuration wrapper for a specific file
+     * // note: Loads or creates a config file with defaults
+     */
+    private class ConfigWrapper {
+        private final File configFile;
+        private FileConfiguration config;
+
+        /**
+         * Loads or creates a configuration file
+         * // note: Initializes a YAML configuration file, copying from resources if missing
+         */
+        ConfigWrapper(String configName) {
+            this.configFile = new File(getDataFolder(), configName);
+            if (!configFile.exists()) {
+                try {
+                    saveResource(configName, false);
+                    if (debugManager != null) {
+                        debugManager.logDebug("[DEBUG - ConfigWrapper] Created default " + configName);
+                    } else {
+                        getLogger().info("[DEBUG - ConfigWrapper] Created default " + configName + " (DebugManager not initialized)");
+                    }
+                } catch (IllegalArgumentException e) {
+                    if (debugManager != null) {
+                        debugManager.logWarning("[DEBUG - ConfigWrapper] Failed to save default " + configName + ": " + e.getMessage());
+                    } else {
+                        getLogger().warning("[DEBUG - ConfigWrapper] Failed to save default " + configName + ": " + e.getMessage());
+                    }
+                }
+            }
+            this.config = YamlConfiguration.loadConfiguration(configFile);
+            // Validate configuration integrity
+            if (config.getKeys(false).isEmpty()) {
+                if (debugManager != null) {
+                    debugManager.logWarning("[DEBUG - ConfigWrapper] " + configName + " is empty, reloading default");
+                } else {
+                    getLogger().warning("[DEBUG - ConfigWrapper] " + configName + " is empty, reloading default");
+                }
+                try {
+                    configFile.delete();
+                    saveResource(configName, false);
+                    this.config = YamlConfiguration.loadConfiguration(configFile);
+                } catch (IllegalArgumentException e) {
+                    if (debugManager != null) {
+                        debugManager.logWarning("[DEBUG - ConfigWrapper] Failed to reload default " + configName + ": " + e.getMessage());
+                    } else {
+                        getLogger().warning("[DEBUG - ConfigWrapper] Failed to reload default " + configName + ": " + e.getMessage());
+                    }
+                }
+            }
+        }
+
+        /**
+         * Reloads the configuration from disk
+         * // note: Refreshes the config file and reapplies defaults
+         */
+        public void reload() {
+            try {
+                config = YamlConfiguration.loadConfiguration(configFile);
+                String resourcePath = configFile.getPath().replace(getDataFolder().getPath() + File.separator, "");
+                InputStream defConfigStream = getResource(resourcePath);
+                if (defConfigStream != null) {
+                    try (InputStreamReader reader = new InputStreamReader(defConfigStream)) {
+                        YamlConfiguration defConfig = YamlConfiguration.loadConfiguration(reader);
+                        config.setDefaults(defConfig);
+                        if (debugManager != null) {
+                            debugManager.logDebug("[DEBUG] Reloaded " + resourcePath + " with defaults from " + resourcePath);
+                        }
+                    }
+                } else {
+                    if (debugManager != null) {
+                        debugManager.logWarning("[DEBUG] No default resource found for " + resourcePath + " during reload");
+                    }
+                }
+            } catch (Exception e) {
+                if (debugManager != null) {
+                    debugManager.logWarning("[DEBUG] Failed to reload " + configFile.getPath() + ": " + e.getMessage());
+                }
+            }
+        }
+
+        /**
+         * Saves the configuration to disk
+         * // note: Persists the current config state to file
+         */
+        public void save() {
+            try {
+                config.save(configFile);
+                if (debugManager != null) {
+                    debugManager.logDebug("[DEBUG] Saved configuration: " + configFile.getPath());
+                }
+            } catch (IOException e) {
+                if (debugManager != null) {
+                    debugManager.logWarning("[DEBUG] Could not save " + configFile.getPath() + ": " + e.getMessage());
+                }
+            }
+        }
+
+        /**
+         * Gets the configuration object
+         * // note: Returns the loaded FileConfiguration
+         */
+        public FileConfiguration getConfig() {
+            return config;
+        }
     }
 }

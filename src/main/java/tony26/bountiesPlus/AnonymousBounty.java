@@ -36,6 +36,40 @@ public class AnonymousBounty {
     }
 
     /**
+     * Creates an anonymous bounty on a target player
+     * // note: Sets a hidden bounty with specified rewards and tax
+     */
+    public void createAnonymousBounty(Player player, UUID targetUUID) {
+        BountyCreationSession session = BountyCreationSession.getOrCreateSession(player);
+        FileConfiguration config = plugin.getPluginConfig().getConfig();
+        double taxRate = config.getDouble("bounty-place-tax-rate", 0.0);
+        double taxAmount = session.getMoney() * taxRate;
+
+        BountyManager manager = plugin.getBountyManager();
+        manager.addBounty(Bounty.builder()
+                .targetUUID(targetUUID)
+                .sponsorUUID(player.getUniqueId())
+                .money(session.getMoney())
+                .xp(session.getExp())
+                .items(session.getItems())
+                .isAnonymous(true)
+                .taxRate(taxRate)
+                .taxAmount(taxAmount)
+                .build());
+
+        FileConfiguration guiConfig = plugin.getCreateGUIConfig().getConfig();
+        FileConfiguration messagesConfig = plugin.getMessagesConfig().getConfig();
+
+        MessageUtils.sendFormattedMessage(player, "bounty-created");
+        session.clear();
+        player.closeInventory();
+
+        if (guiConfig.getBoolean("confirm-button.confirm-button-filler", false)) {
+            new CreateGUI(player, plugin.getEventManager());
+        }
+    }
+
+    /**
      * Prompts the player to confirm anonymity for a bounty
      * // note: Sends anonymous-bounty-prompt message and sets up chat listener for response
      */

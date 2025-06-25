@@ -53,14 +53,26 @@ public class PreviewGUI implements InventoryHolder, Listener {
 
         // Verify configuration integrity
         if (!configFile.exists() || config.getConfigurationSection("bounty-info") == null) {
-            plugin.getDebugManager().logWarning("[DEBUG - PreviewGUI] PreviewGUI.yml is missing or invalid, reloading default");
+            if (plugin.getDebugManager() != null) {
+                plugin.getDebugManager().logWarning("[DEBUG - PreviewGUI] PreviewGUI.yml is missing or invalid, reloading default");
+            } else {
+                plugin.getLogger().warning("[DEBUG - PreviewGUI] PreviewGUI.yml is missing or invalid, reloading default");
+            }
             try {
-                if (configFile.exists()) configFile.delete(); // Remove invalid file
-                plugin.saveResource("GUIs/PreviewGUI.yml", false); // Copy default
+                if (configFile.exists()) configFile.delete();
+                plugin.saveResource("GUIs/PreviewGUI.yml", false);
                 config = YamlConfiguration.loadConfiguration(configFile);
-                plugin.getDebugManager().logDebug("[DEBUG - PreviewGUI] Reloaded default PreviewGUI.yml");
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logDebug("[DEBUG - PreviewGUI] Reloaded default PreviewGUI.yml");
+                } else {
+                    plugin.getLogger().info("[DEBUG - PreviewGUI] Reloaded default PreviewGUI.yml");
+                }
             } catch (IllegalArgumentException e) {
-                plugin.getDebugManager().logWarning("[DEBUG - PreviewGUI] Failed to reload default PreviewGUI.yml: " + e.getMessage());
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logWarning("[DEBUG - PreviewGUI] Failed to reload default PreviewGUI.yml: " + e.getMessage());
+                } else {
+                    plugin.getLogger().warning("[DEBUG - PreviewGUI] Failed to reload default PreviewGUI.yml: " + e.getMessage());
+                }
             }
         }
 

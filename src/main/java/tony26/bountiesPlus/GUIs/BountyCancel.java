@@ -50,22 +50,38 @@ public class BountyCancel implements Listener {
         File configFile = new File(plugin.getDataFolder(), "GUIs/BountyCancelGUI.yml");
         if (!configFile.exists()) {
             try {
-                plugin.saveResource("GUIs/BountyCancelGUI.yml", false); // Copy default config
-                plugin.getDebugManager().logDebug("[DEBUG - BountyCancelGUI] Created default BountyCancelGUI.yml");
+                plugin.saveResource("GUIs/BountyCancelGUI.yml", false);
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logDebug("[DEBUG - BountyCancelGUI] Created default BountyCancelGUI.yml");
+                } else {
+                    plugin.getLogger().info("[DEBUG - BountyCancelGUI] Created default BountyCancelGUI.yml");
+                }
             } catch (IllegalArgumentException e) {
-                plugin.getDebugManager().logWarning("[DEBUG - BountyCancelGUI] Failed to save default BountyCancelGUI.yml: " + e.getMessage());
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logWarning("[DEBUG - BountyCancelGUI] Failed to save default BountyCancelGUI.yml: " + e.getMessage());
+                } else {
+                    plugin.getLogger().warning("[DEBUG - BountyCancelGUI] Failed to save default BountyCancelGUI.yml: " + e.getMessage());
+                }
             }
         }
         config = YamlConfiguration.loadConfiguration(configFile);
         // Verify configuration integrity
         if (config.getConfigurationSection("bounty-item") == null) {
-            plugin.getDebugManager().logWarning("[DEBUG - BountyCancelGUI] BountyCancelGUI.yml is empty or invalid, reloading default");
+            if (plugin.getDebugManager() != null) {
+                plugin.getDebugManager().logWarning("[DEBUG - BountyCancelGUI] BountyCancelGUI.yml is empty or invalid, reloading default");
+            } else {
+                plugin.getLogger().warning("[DEBUG - BountyCancelGUI] BountyCancelGUI.yml is empty or invalid, reloading default");
+            }
             try {
-                configFile.delete(); // Remove invalid file
-                plugin.saveResource("GUIs/BountyCancelGUI.yml", false); // Recopy default
+                configFile.delete();
+                plugin.saveResource("GUIs/BountyCancelGUI.yml", false);
                 config = YamlConfiguration.loadConfiguration(configFile);
             } catch (IllegalArgumentException e) {
-                plugin.getDebugManager().logWarning("[DEBUG - BountyCancelGUI] Failed to reload default BountyCancelGUI.yml: " + e.getMessage());
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logWarning("[DEBUG - BountyCancelGUI] Failed to reload default BountyCancelGUI.yml: " + e.getMessage());
+                } else {
+                    plugin.getLogger().warning("[DEBUG - BountyCancelGUI] Failed to reload default BountyCancelGUI.yml: " + e.getMessage());
+                }
             }
         }
         this.guiTitle = config.getString("gui.title", "&4Cancel Bounty");

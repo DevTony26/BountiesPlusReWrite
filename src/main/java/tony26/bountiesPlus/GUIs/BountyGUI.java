@@ -172,22 +172,34 @@ public class BountyGUI implements Listener {
         BountiesPlus pluginInstance = BountiesPlus.getInstance();
         FileConfiguration config = pluginInstance.getBountyGUIConfig();
         DebugManager debugManager = pluginInstance.getDebugManager();
+        File configFile = new File(pluginInstance.getDataFolder(), "GUIs/BountyGUI.yml");
 
         // Verify configuration integrity
-        File configFile = new File(pluginInstance.getDataFolder(), "GUIs/BountyGUI.yml");
         if (!configFile.exists() || config.getConfigurationSection("Plugin-Items") == null) {
-            debugManager.logWarning("[DEBUG - BountyGUI] BountyGUI.yml is missing or invalid, reloading default");
+            if (debugManager != null) {
+                debugManager.logWarning("[DEBUG - BountyGUI] BountyGUI.yml is missing or invalid, reloading default");
+            } else {
+                pluginInstance.getLogger().warning("[DEBUG - BountyGUI] BountyGUI.yml is missing or invalid, reloading default");
+            }
             try {
-                if (configFile.exists()) configFile.delete(); // Remove invalid file
-                pluginInstance.saveResource("GUIs/BountyGUI.yml", false); // Copy default
+                if (configFile.exists()) configFile.delete();
+                pluginInstance.saveResource("GUIs/BountyGUI.yml", false);
                 config = YamlConfiguration.loadConfiguration(configFile);
-                pluginInstance.getDebugManager().logDebug("[DEBUG - BountyGUI] Reloaded default BountyGUI.yml");
+                if (debugManager != null) {
+                    debugManager.logDebug("[DEBUG - BountyGUI] Reloaded default BountyGUI.yml");
+                } else {
+                    pluginInstance.getLogger().info("[DEBUG - BountyGUI] Reloaded default BountyGUI.yml");
+                }
             } catch (IllegalArgumentException e) {
-                debugManager.logWarning("[DEBUG - BountyGUI] Failed to reload default BountyGUI.yml: " + e.getMessage());
+                if (debugManager != null) {
+                    debugManager.logWarning("[DEBUG - BountyGUI] Failed to reload default BountyGUI.yml: " + e.getMessage());
+                } else {
+                    pluginInstance.getLogger().warning("[DEBUG - BountyGUI] Failed to reload default BountyGUI.yml: " + e.getMessage());
+                }
             }
         }
 
-        loadBountySkullSlots(config, debugManager);
+        loadBountySkullSlots(config, debugManager != null ? debugManager : new DebugManager());
         UUID playerUUID = player.getUniqueId();
         playerShowOnlyOnline.putIfAbsent(playerUUID, false);
         playerFilterHighToLow.putIfAbsent(playerUUID, true);

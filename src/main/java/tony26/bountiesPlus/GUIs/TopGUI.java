@@ -93,22 +93,38 @@ public class TopGUI implements Listener {
         File configFile = new File(plugin.getDataFolder(), "GUIs/TopGUI.yml");
         if (!configFile.exists()) {
             try {
-                plugin.saveResource("GUIs/TopGUI.yml", false); // Copy default config from resources
-                plugin.getLogger().info("[DEBUG - TopGUI] Created default TopGUI.yml");
+                plugin.saveResource("GUIs/TopGUI.yml", false);
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logDebug("[DEBUG - TopGUI] Created default TopGUI.yml");
+                } else {
+                    plugin.getLogger().info("[DEBUG - TopGUI] Created default TopGUI.yml (DebugManager not initialized)");
+                }
             } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("[DEBUG - TopGUI] Failed to save default TopGUI.yml: " + e.getMessage());
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logWarning("[DEBUG - TopGUI] Failed to save default TopGUI.yml: " + e.getMessage());
+                } else {
+                    plugin.getLogger().warning("[DEBUG - TopGUI] Failed to save default TopGUI.yml: " + e.getMessage());
+                }
             }
         }
         config = YamlConfiguration.loadConfiguration(configFile);
         // Verify configuration integrity
         if (config.getConfigurationSection("Plugin-Items") == null) {
-            plugin.getLogger().warning("[DEBUG - TopGUI] TopGUI.yml is empty or invalid, reloading default");
+            if (plugin.getDebugManager() != null) {
+                plugin.getDebugManager().logWarning("[DEBUG - TopGUI] TopGUI.yml is empty or invalid, reloading default");
+            } else {
+                plugin.getLogger().warning("[DEBUG - TopGUI] TopGUI.yml is empty or invalid, reloading default");
+            }
             try {
-                configFile.delete(); // Remove invalid file
-                plugin.saveResource("GUIs/TopGUI.yml", false); // Recopy default
+                configFile.delete();
+                plugin.saveResource("GUIs/TopGUI.yml", false);
                 config = YamlConfiguration.loadConfiguration(configFile);
             } catch (IllegalArgumentException e) {
-                plugin.getLogger().warning("[DEBUG - TopGUI] Failed to reload default TopGUI.yml: " + e.getMessage());
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logWarning("[DEBUG - TopGUI] Failed to reload default TopGUI.yml: " + e.getMessage());
+                } else {
+                    plugin.getLogger().warning("[DEBUG - TopGUI] Failed to reload default TopGUI.yml: " + e.getMessage());
+                }
             }
         }
     }

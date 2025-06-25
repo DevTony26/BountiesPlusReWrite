@@ -64,14 +64,26 @@ public class AddItemsGUI implements Listener {
 
         // Verify configuration integrity
         if (!configFile.exists() || config.getConfigurationSection("buttons") == null) {
-            BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - AddItemsGUI] AddItemsGUI.yml is missing or invalid, reloading default");
+            if (BountiesPlus.getInstance().getDebugManager() != null) {
+                BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - AddItemsGUI] AddItemsGUI.yml is missing or invalid, reloading default");
+            } else {
+                BountiesPlus.getInstance().getLogger().warning("[DEBUG - AddItemsGUI] AddItemsGUI.yml is missing or invalid, reloading default");
+            }
             try {
-                if (configFile.exists()) configFile.delete(); // Remove invalid file
-                BountiesPlus.getInstance().saveResource("GUIs/AddItemsGUI.yml", false); // Copy default
+                if (configFile.exists()) configFile.delete();
+                BountiesPlus.getInstance().saveResource("GUIs/AddItemsGUI.yml", false);
                 config = YamlConfiguration.loadConfiguration(configFile);
-                BountiesPlus.getInstance().getDebugManager().logDebug("[DEBUG - AddItemsGUI] Reloaded default AddItemsGUI.yml");
+                if (BountiesPlus.getInstance().getDebugManager() != null) {
+                    BountiesPlus.getInstance().getDebugManager().logDebug("[DEBUG - AddItemsGUI] Reloaded default AddItemsGUI.yml");
+                } else {
+                    BountiesPlus.getInstance().getLogger().info("[DEBUG - AddItemsGUI] Reloaded default AddItemsGUI.yml");
+                }
             } catch (IllegalArgumentException e) {
-                BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - AddItemsGUI] Failed to reload default AddItemsGUI.yml: " + e.getMessage());
+                if (BountiesPlus.getInstance().getDebugManager() != null) {
+                    BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - AddItemsGUI] Failed to reload default AddItemsGUI.yml: " + e.getMessage());
+                } else {
+                    BountiesPlus.getInstance().getLogger().warning("[DEBUG - AddItemsGUI] Failed to reload default AddItemsGUI.yml: " + e.getMessage());
+                }
             }
         }
 
@@ -84,7 +96,11 @@ public class AddItemsGUI implements Listener {
                 Material material = Material.valueOf(materialName.toUpperCase());
                 blacklistedItems.add(material);
             } catch (IllegalArgumentException e) {
-                BountiesPlus.getInstance().getLogger().warning("[DEBUG - AddItemsGUI] Invalid material in blacklisted-items: " + materialName);
+                if (BountiesPlus.getInstance().getDebugManager() != null) {
+                    BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - AddItemsGUI] Invalid material in blacklisted-items: " + materialName);
+                } else {
+                    BountiesPlus.getInstance().getLogger().warning("[DEBUG - AddItemsGUI] Invalid material in blacklisted-items: " + materialName);
+                }
             }
         }
 

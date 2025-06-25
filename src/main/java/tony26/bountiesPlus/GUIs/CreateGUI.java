@@ -110,14 +110,26 @@ public class CreateGUI implements InventoryHolder, Listener {
 
         // Verify configuration integrity
         if (!configFile.exists() || config.getConfigurationSection("Plugin-Items") == null) {
-            plugin.getDebugManager().logWarning("[DEBUG - CreateGUI] CreateGUI.yml is missing or invalid, reloading default");
+            if (plugin.getDebugManager() != null) {
+                plugin.getDebugManager().logWarning("[DEBUG - CreateGUI] CreateGUI.yml is missing or invalid, reloading default");
+            } else {
+                plugin.getLogger().warning("[DEBUG - CreateGUI] CreateGUI.yml is missing or invalid, reloading default");
+            }
             try {
-                if (configFile.exists()) configFile.delete(); // Remove invalid file
-                plugin.saveResource("GUIs/CreateGUI.yml", false); // Copy default
+                if (configFile.exists()) configFile.delete();
+                plugin.saveResource("GUIs/CreateGUI.yml", false);
                 config = YamlConfiguration.loadConfiguration(configFile);
-                plugin.getDebugManager().logDebug("[DEBUG - CreateGUI] Reloaded default CreateGUI.yml");
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logDebug("[DEBUG - CreateGUI] Reloaded default CreateGUI.yml");
+                } else {
+                    plugin.getLogger().info("[DEBUG - CreateGUI] Reloaded default CreateGUI.yml");
+                }
             } catch (IllegalArgumentException e) {
-                plugin.getDebugManager().logWarning("[DEBUG - CreateGUI] Failed to reload default CreateGUI.yml: " + e.getMessage());
+                if (plugin.getDebugManager() != null) {
+                    plugin.getDebugManager().logWarning("[DEBUG - CreateGUI] Failed to reload default CreateGUI.yml: " + e.getMessage());
+                } else {
+                    plugin.getLogger().warning("[DEBUG - CreateGUI] Failed to reload default CreateGUI.yml: " + e.getMessage());
+                }
             }
         }
 
