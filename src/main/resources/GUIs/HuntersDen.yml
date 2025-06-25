@@ -1,0 +1,436 @@
+gui-title: "&4&l⚔ Hunter's Den ⚔"
+size: 54
+Plugin-Items:
+  border:
+    material: "RED_STAINED_GLASS_PANE"
+    name: ""
+    lore: []
+    enchantment-glow: false
+    slots: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 18, 26, 27, 35, 36, 44, 45, 46, 47, 48, 50, 51, 52, 53]
+  back-button:
+    material: "BARRIER"
+    name: "&c&lBack to Bounties"
+    lore:
+      - "&7Click to return to the main"
+      - "&7bounty interface"
+    enchantment-glow: false
+    slot: 49
+  bounty_tracker:
+    material: "COMPASS"
+    name: "&6&lBounty Tracker"
+    lore:
+      - "&7Track down your enemies with precision!"
+      - "&8Reveals the location of nearby targets"
+      - ""
+      - "&ePurchase Options:"
+      - "&f• &a$500 &7(Money)"
+      - "&f• &b15 Levels &7(Experience)"
+      - "&f• &c3 Bounty Skulls &7(Min: $200 each)"
+      - ""
+      - "&aLeft-click: &fBuy with Money"
+      - "&bShift-click: &fBuy with XP"
+      - "&cRight-click: &fBuy with Skulls"
+    enchantment-glow: true
+    slot: 10
+    currency-type: "multi"
+    price: 500.0
+    xp-price: 15
+    skull-count: 3
+    min-skull-value: 200.0
+    commands:
+      money:
+        - "bounty give %player% tracker 1"
+      xp:
+        - "bounty give %player% tracker 1"
+      skulls:
+        - "bounty give %player% tracker 1"
+  tactical_jammer:
+    material: "REDSTONE_BLOCK"
+    name: "&c&lTactical Jammer"
+    lore:
+      - "&7Become invisible to enemy trackers!"
+      - "&8Blocks all tracking attempts for a duration"
+      - ""
+      - "&ePurchase Options:"
+      - "&f• &a$750 &7(Money)"
+      - "&f• &b20 Levels &7(Experience)"
+      - "&f• &c4 Bounty Skulls &7(Min: $150 each)"
+      - ""
+      - "&7Perfect for stealthy escapes and"
+      - "&7avoiding unwanted attention!"
+      - ""
+      - "&aLeft-click: &fBuy with Money"
+      - "&bShift-click: &fBuy with XP"
+      - "&cRight-click: &fBuy with Skulls"
+    enchantment-glow: true
+    slot: 11
+    currency-type: "multi"
+    price: 750.0
+    xp-price: 20
+    skull-count: 4
+    min-skull-value: 150.0
+    commands:
+      money:
+        - "bounty give %player% jammer 1"
+      xp:
+        - "bounty give %player% jammer 1"
+      skulls:
+        - "bounty give %player% jammer 1"
+  advanced_uav:
+    material: "ELYTRA"
+    name: "&9&lAdvanced UAV"
+    lore:
+      - "&7Launch a surveillance drone!"
+      - "&8Reveals all nearby targets through walls"
+      - "&8Provides temporary glow effect on enemies"
+      - ""
+      - "&ePurchase Options:"
+      - "&f• &a$1200 &7(Money)"
+      - "&f• &b35 Levels &7(Experience)"
+      - "&f• &c6 Bounty Skulls &7(Min: $175 each)"
+      - ""
+      - "&7The ultimate reconnaissance tool"
+      - "&7for professional bounty hunters!"
+      - ""
+      - "&aLeft-click: &fBuy with Money"
+      - "&bShift-click: &fBuy with XP"
+      - "&cRight-click: &fBuy with Skulls"
+    enchantment-glow: true
+    slot: 12
+    currency-type: "multi"
+    price: 1200.0
+    xp-price: 35
+    skull-count: 6
+    min-skull-value: 175.0
+    commands:
+      money:
+        - "bounty give %player% uav 1"
+      xp:
+        - "bounty give %player% uav 1"
+      skulls:
+        - "bounty give %player% uav 1"
+  manual_boost:
+    material: "GOLDEN_APPLE"
+    name: "&e&lManual Boost Crystal"
+    lore:
+      - "&7Enhance a specific target's bounty!"
+      - "&8Choose your target and multiply their worth"
+      - "&8Duration varies based on RNG"
+      - ""
+      - "&ePurchase Options:"
+      - "&f• &a$2000 &7(Money)"
+      - "&f• &b50 Levels &7(Experience)"
+      - "&f• &c8 Bounty Skulls &7(Min: $225 each)"
+      - ""
+      - "&7Strategic tool for maximizing"
+      - "&7your hunting profits!"
+      - ""
+      - "&aLeft-click: &fBuy with Money"
+      - "&bShift-click: &fBuy with XP"
+      - "&cRight-click: &fBuy with Skulls"
+    enchantment-glow: true
+    slot: 19
+    currency-type: "multi"
+    price: 2000.0
+    xp-price: 50
+    skull-count: 8
+    min-skull-value: 225.0
+    commands:
+      money:
+        - "bounty give %player% manual-boost 1"
+      xp:
+        - "bounty give %player% manual-boost 1"
+      skulls:
+        - "bounty give %player% manual-boost 1"
+  manual_frenzy:
+    material: "NETHER_STAR"
+    name: "&d&lFrenzy Catalyst"
+    lore:
+      - "&7Trigger a server-wide bounty frenzy!"
+      - "&8All bounties receive massive multipliers"
+      - "&8Duration and power determined by chance"
+      - ""
+      - "&ePurchase Options:"
+      - "&f• &a$5000 &7(Money Only)"
+      - ""
+      - "&c&lWARNING: &7This affects ALL players!"
+      - "&7Use wisely - everyone will know it was you!"
+      - ""
+      - "&7The most powerful tool in the Hunter's Den."
+      - "&7Reserved for the elite bounty hunters."
+      - ""
+      - "&aLeft-click: &fBuy with Money"
+    enchantment-glow: true
+    slot: 20
+    currency-type: "money"
+    price: 5000.0
+    commands:
+      money:
+        - "bounty give %player% manual-frenzy 1"
+  chronos_shard:
+    material: "CLOCK"
+    name: "&b&lChronos Shard"
+    lore:
+      - "&7Manipulate the flow of time itself!"
+      - "&8Reduce remaining bounty durations"
+      - "&8Or potentially extend them if you're unlucky"
+      - ""
+      - "&ePurchase Options:"
+      - "&f• &a$1500 &7(Money)"
+      - "&f• &b40 Levels &7(Experience)"
+      - "&f• &c7 Bounty Skulls &7(Min: $200 each)"
+      - ""
+      - "&7Time is money, and this shard"
+      - "&7gives you control over both!"
+      - ""
+      - "&aLeft-click: &fBuy with Money"
+      - "&bShift-click: &fBuy with XP"
+      - "&cRight-click: &fBuy with Skulls"
+    enchantment-glow: true
+    slot: 21
+    currency-type: "multi"
+    price: 1500.0
+    xp-price: 40
+    skull-count: 7
+    min-skull-value: 200.0
+    commands:
+      money:
+        - "bounty give %player% chronos-shard 1"
+      xp:
+        - "bounty give %player% chronos-shard 1"
+      skulls:
+        - "bounty give %player% chronos-shard 1"
+  reverse_bounty:
+    material: "END_CRYSTAL"
+    name: "&5&lReverse Bounty Orb"
+    lore:
+      - "&7Turn the tables on your hunters!"
+      - "&8Reverses all bounties placed on you"
+      - "&8The highest contributor pays the price"
+      - ""
+      - "&ePurchase Options:"
+      - "&f• &a$3000 &7(Money)"
+      - "&f• &b75 Levels &7(Experience)"
+      - "&f• &c12 Bounty Skulls &7(Min: $250 each)"
+      - ""
+      - "&7A desperate measure for desperate times."
+      - "&7High risk, high reward!"
+      - ""
+      - "&c&lRisk: &7May fail and waste your investment!"
+      - ""
+      - "&aLeft-click: &fBuy with Money"
+      - "&bShift-click: &fBuy with XP"
+      - "&cRight-click: &fBuy with Skulls"
+    enchantment-glow: true
+    slot: 28
+    currency-type: "multi"
+    price: 3000.0
+    xp-price: 75
+    skull-count: 12
+    min-skull-value: 250.0
+    commands:
+      money:
+        - "bounty give %player% reverse-bounty 1"
+      xp:
+        - "bounty give %player% reverse-bounty 1"
+      skulls:
+        - "bounty give %player% reverse-bounty 1"
+  starter_pack:
+    material: "CHEST"
+    name: "&a&lHunter's Starter Pack"
+    lore:
+      - "&7Perfect for new bounty hunters!"
+      - "&8Contains: 1x Tracker + 1x Jammer"
+      - ""
+      - "&ePurchase Options:"
+      - "&f• &a$800 &7(Money)"
+      - "&f• &b25 Levels &7(Experience)"
+      - ""
+      - "&7Save money with this bundle deal!"
+      - "&7Everything you need to get started."
+      - ""
+      - "&aLeft-click: &fBuy with Money"
+      - "&bShift-click: &fBuy with XP"
+    enchantment-glow: false
+    slot: 37
+    currency-type: "multi"
+    price: 800.0
+    xp-price: 25
+    commands:
+      money:
+        - "bounty give %player% tracker 1"
+        - "bounty give %player% jammer 1"
+      xp:
+        - "bounty give %player% tracker 1"
+        - "bounty give %player% jammer 1"
+  pro_pack:
+    material: "ENDER_CHEST"
+    name: "&6&lProfessional Hunter Pack"
+    lore:
+      - "&7For experienced bounty hunters!"
+      - "&8Contains: 2x Tracker + 1x UAV + 1x Boost"
+      - ""
+      - "&ePurchase Options:"
+      - "&f• &a$3500 &7(Money)"
+      - "&f• &b90 Levels &7(Experience)"
+      - "&f• &c15 Bounty Skulls &7(Min: $200 each)"
+      - ""
+      - "&7The ultimate hunting toolkit!"
+      - "&7Significant savings over individual purchases."
+      - ""
+      - "&aLeft-click: &fBuy with Money"
+      - "&bShift-click: &fBuy with XP"
+      - "&cRight-click: &fBuy with Skulls"
+    enchantment-glow: true
+    slot: 38
+    currency-type: "multi"
+    price: 3500.0
+    xp-price: 90
+    skull-count: 15
+    min-skull-value: 200.0
+    commands:
+      money:
+        - "bounty give %player% tracker 2"
+        - "bounty give %player% uav 1"
+        - "bounty give %player% manual-boost 1"
+      xp:
+        - "bounty give %player% tracker 2"
+        - "bounty give %player% uav 1"
+        - "bounty give %player% manual-boost 1"
+      skulls:
+        - "bounty give %player% tracker 2"
+        - "bounty give %player% uav 1"
+        - "bounty give %player% manual-boost 1"
+  elite_pack:
+    material: "SHULKER_BOX"
+    name: "&d&lElite Hunter Arsenal"
+    lore:
+      - "&7Only for the most elite hunters!"
+      - "&8Contains: 3x Tracker + 2x UAV + 2x Boost"
+      - "&8+ 1x Chronos Shard + 1x Jammer"
+      - ""
+      - "&ePurchase Options:"
+      - "&f• &a$7500 &7(Money Only)"
+      - ""
+      - "&7The complete arsenal of a legendary"
+      - "&7bounty hunter. Massive value!"
+      - ""
+      - "&c&lEXCLUSIVE: &7Can only be purchased"
+      - "&7with money. No XP or skull options."
+      - ""
+      - "&aLeft-click: &fBuy with Money"
+    enchantment-glow: true
+    slot: 39
+    currency-type: "money"
+    price: 7500.0
+    commands:
+      money:
+        - "bounty give %player% tracker 3"
+        - "bounty give %player% uav 2"
+        - "bounty give %player% manual-boost 2"
+        - "bounty give %player% chronos-shard 1"
+        - "bounty give %player% jammer 1"
+Custom-Items:
+  filler:
+    material: "BLACK_STAINED_GLASS_PANE"
+    name: ""
+    lore: []
+    slots: [14, 15, 16, 23, 24, 25, 32, 33, 34, 41, 42, 43]
+  decoration_1:
+    material: "DIAMOND_SWORD"
+    name: "&b&l⚔ Hunter's Creed ⚔"
+    lore:
+      - "&7&o\"In the world of bounties,"
+      - "&7&oonly the prepared survive.\""
+      - ""
+      - "&e&lWelcome to the Hunter's Den!"
+      - "&7Your one-stop shop for all"
+      - "&7bounty hunting needs."
+    enchantment-glow: true
+    slot: 13
+  decoration_2:
+    material: "SKELETON_SKULL"
+    name: "&c&lTrophies of the Hunt"
+    lore:
+      - "&7The remnants of successful hunts..."
+      - "&8Each skull tells a story of victory"
+      - ""
+      - "&7Bring your bounty skulls here"
+      - "&7to trade for powerful items!"
+    enchantment-glow: false
+    slot: 22
+  decoration_3:
+    material: "GOLD_INGOT"
+    name: "&6&lWealth Accumulator"
+    lore:
+      - "&7Your current balance: &a$%player_balance%"
+      - "&7Your current XP: &b%player_xp% levels"
+      - ""
+      - "&7Build your fortune through"
+      - "&7successful bounty hunting!"
+    enchantment-glow: true
+    slot: 31
+  decoration_4:
+    material: "BOOK"
+    name: "&e&lHunter's Guide"
+    lore:
+      - "&7&lTips for New Hunters:"
+      - "&f• &7Start with the Starter Pack"
+      - "&f• &7Use Trackers to find targets"
+      - "&f• &7Jammers help you escape"
+      - "&f• &7UAVs reveal hidden enemies"
+      - ""
+      - "&7&lAdvanced Strategies:"
+      - "&f• &7Time your Frenzy usage"
+      - "&f• &7Save skulls for big purchases"
+      - "&f• &7Coordinate with other hunters"
+    enchantment-glow: false
+    slot: 40
+messages:
+  item-not-available: "&cThis item is not available!"
+  no-permission: "&cYou don't have permission to purchase this item!"
+  purchase-success: "&a&l✓ Successfully purchased %item%!"
+  purchase-failed: "&c&l✗ Failed to purchase %item%!"
+  extra-item-no-permission: "&cYou don't have permission to use this item!"
+  invalid-price: "&cInvalid price for this item!"
+  invalid-xp-price: "&cInvalid XP price for this item!"
+  invalid-skull-count: "&cInvalid skull count for this item!"
+  invalid-currency-type: "&cInvalid currency type configured for this item!"
+  insufficient-funds: "&cYou need $%price% to purchase this item!"
+  insufficient-xp: "&cYou need %xp_price% XP to purchase this item!"
+  insufficient-skulls: "&cYou need %skull_count% bounty skulls worth at least $%min_skull_value% each!"
+  insufficient-funds-both: "&cYou need $%price% and %xp_price% XP to purchase this item! (Missing money)"
+  insufficient-xp-both: "&cYou need $%price% and %xp_price% XP to purchase this item! (Missing XP)"
+  insufficient-funds-mixed: "&cInsufficient money! Need $%price%"
+  insufficient-xp-mixed: "&cInsufficient XP! Need %xp_price% XP"
+  insufficient-skulls-mixed: "&cInsufficient skulls! Need %skull_count% skulls worth $%min_skull_value%+ each"
+  purchase-success-new: "&a&lPURCHASE SUCCESSFUL!"
+  purchase-failure-new: "&c&lPURCHASE FAILED!"
+  insufficient-funds-new: "&c&lInsufficient %currency_type%! You need %required_amount%."
+  insufficient-skulls-new: "&c&lYou need %required_count% bounty skulls (minimum $%min_value% each)!"
+  invalid-skulls: "&c&lSome of your skulls don't meet the minimum value requirement!"
+  item-given: "&aYou have received: & ПРОe%item_name%"
+  inventory-full: "&c&lYour inventory is full! Items dropped on the ground."
+  warnings:
+    invalid-border-material: "Invalid border material '%material%' in HuntersDen.yml, using default"
+    invalid-border-slot: "Invalid slot %slot% in HuntersDen.yml border configuration (must be 0-53)"
+    no-shop-items: "No shop-Items section found in HuntersDen.yml"
+    invalid-item-slot: "Invalid slot %slot% for item %item% in HuntersDen.yml"
+    invalid-item-material: "Invalid material '%material%' for item %item% in HuntersDen.yml, using STONE"
+    invalid-back-button-material: "Invalid back button material '%material%' in HuntersDen.yml, using BARRIER"
+    item-load-error: "Error loading shop item %item% from HuntersDen.yml: %error%"
+    skull-value-parse-error: "Failed to parse bounty skull value from: %line%"
+    economy-unavailable: "Economy system not available for money transactions"
+    invalid-currency-type: "Invalid currency type: %currency_type%"
+    purchase-error: "Error processing purchase for %player%: %error%"
+    slot-occupied: "Slot %slot% for %item% is already occupied"
+    invalid-extra-item-slot: "Invalid slot %slot% for extra item %item% in HuntersDen.yml"
+    invalid-extra-item-material: "Invalid material '%material%' for extra item %item% in HuntersDen.yml, using STONE"
+    extra-item-load-error: "Error loading extra item %item% from HuntersDen.yml: %error%"
+currency-names:
+  money: "Money"
+  xp: "Experience"
+  skulls: "Bounty Skulls"
+permissions:
+  use-shop: "bountiesplus.shop.use"
+  buy-premium: "bountiesplus.shop.premium"
