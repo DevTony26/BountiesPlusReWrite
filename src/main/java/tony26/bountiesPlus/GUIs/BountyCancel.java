@@ -64,7 +64,7 @@ public class BountyCancel implements Listener {
                 }
             }
         }
-        config = YamlConfiguration.loadConfiguration(configFile);
+        config = plugin.getBountyCancelGUIConfig();
         // Verify configuration integrity
         if (config.getConfigurationSection("bounty-item") == null) {
             if (plugin.getDebugManager() != null) {

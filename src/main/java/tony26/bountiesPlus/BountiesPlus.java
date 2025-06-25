@@ -52,25 +52,24 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     private float bountySoundVolume;
     private float bountySoundPitch;
     private String bountyGUITitle;
-    private Map<String, ConfigWrapper> configWrappers = new HashMap<>();
     private MySQL mySQL;
     private ExecutorService executorService;
     private EventManager eventManager;
     private ShopGuiPlusIntegration shopGuiPlusIntegration;
-    private ConfigWrapper CONFIG;
-    private ConfigWrapper MESSAGES_CONFIG;
-    private ConfigWrapper ITEM_VALUE_CONFIG;
-    private ConfigWrapper ITEMS_CONFIG;
-    private ConfigWrapper BOUNTY_TEAM_CHECK_CONFIG;
-    private ConfigWrapper STAT_STORAGE_CONFIG;
-    private ConfigWrapper BOUNTY_STORAGE_CONFIG;
-    private ConfigWrapper BOUNTY_GUI_CONFIG;
-    private ConfigWrapper TOP_GUI_CONFIG;
-    private ConfigWrapper CREATE_GUI_CONFIG;
-    private ConfigWrapper HUNTER_DEN_CONFIG;
-    private ConfigWrapper PREVIEW_GUI_CONFIG;
-    private ConfigWrapper ADD_ITEMS_CONFIG;
-    private ConfigWrapper BOUNTY_CANCEL_CONFIG;
+    private static final ConfigWrapper CONFIG = new ConfigWrapper("config.yml");
+    private static final ConfigWrapper MESSAGES_CONFIG = new ConfigWrapper("messages.yml");
+    private static final ConfigWrapper ITEM_VALUE_CONFIG = new ConfigWrapper("ItemValue.yml");
+    private static final ConfigWrapper ITEMS_CONFIG = new ConfigWrapper("items.yml");
+    private static final ConfigWrapper BOUNTY_TEAM_CHECK_CONFIG = new ConfigWrapper("BountyTeamChecks.yml");
+    private static final ConfigWrapper STAT_STORAGE_CONFIG = new ConfigWrapper("Storage/StatStorage.yml");
+    private static final ConfigWrapper BOUNTY_STORAGE_CONFIG = new ConfigWrapper("Storage/BountyStorage.yml");
+    private static final ConfigWrapper BOUNTY_GUI_CONFIG = new ConfigWrapper("GUIs/BountyGUI.yml");
+    private static final ConfigWrapper TOP_GUI_CONFIG = new ConfigWrapper("GUIs/TopGUI.yml");
+    private static final ConfigWrapper CREATE_GUI_CONFIG = new ConfigWrapper("GUIs/CreateGUI.yml");
+    private static final ConfigWrapper HUNTER_DEN_CONFIG = new ConfigWrapper("GUIs/HuntersDen.yml");
+    private static final ConfigWrapper PREVIEW_GUI_CONFIG = new ConfigWrapper("GUIs/PreviewGUI.yml");
+    private static final ConfigWrapper ADD_ITEMS_CONFIG = new ConfigWrapper("GUIs/AddItemsGUI.yml");
+    private static final ConfigWrapper BOUNTY_CANCEL_CONFIG = new ConfigWrapper("GUIs/BountyCancelGUI.yml");
 
     // Getters
     public static BountiesPlus getInstance() {
@@ -81,64 +80,60 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         return economy;
     }
 
-    /**
-     * Retrieves the plugin configuration wrapper
-     * // note: Provides access to config.yml via ConfigWrapper
-     */
-    public ConfigWrapper getPluginConfig() {
-        return CONFIG;
+    public FileConfiguration getConfig() {
+        return CONFIG.getConfig();
     }
 
-    public ConfigWrapper getMessagesConfig() {
-        return MESSAGES_CONFIG;
+    public FileConfiguration getMessagesConfig() {
+        return MESSAGES_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getItemValueConfig() {
-        return ITEM_VALUE_CONFIG;
+    public FileConfiguration getItemValueConfig() {
+        return ITEM_VALUE_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getItemsConfig() {
-        return ITEMS_CONFIG;
+    public FileConfiguration getItemsConfig() {
+        return ITEMS_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getTeamChecksConfig() {
-        return BOUNTY_TEAM_CHECK_CONFIG;
+    public FileConfiguration getTeamChecksConfig() {
+        return BOUNTY_TEAM_CHECK_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getStatsConfig() {
-        return STAT_STORAGE_CONFIG;
+    public FileConfiguration getStatsConfig() {
+        return STAT_STORAGE_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getBountiesConfig() {
-        return BOUNTY_STORAGE_CONFIG;
+    public FileConfiguration getBountiesConfig() {
+        return BOUNTY_STORAGE_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getBountyGUIConfig() {
-        return BOUNTY_GUI_CONFIG;
+    public FileConfiguration getBountyGUIConfig() {
+        return BOUNTY_GUI_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getTopGUIConfig() {
-        return TOP_GUI_CONFIG;
+    public FileConfiguration getTopGUIConfig() {
+        return TOP_GUI_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getCreateGUIConfig() {
-        return CREATE_GUI_CONFIG;
+    public FileConfiguration getCreateGUIConfig() {
+        return CREATE_GUI_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getHuntersDenConfig() {
-        return HUNTER_DEN_CONFIG;
+    public FileConfiguration getHuntersDenConfig() {
+        return HUNTER_DEN_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getPreviewGUIConfig() {
-        return PREVIEW_GUI_CONFIG;
+    public FileConfiguration getPreviewGUIConfig() {
+        return PREVIEW_GUI_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getAddItemsGUIConfig() {
-        return ADD_ITEMS_CONFIG;
+    public FileConfiguration getAddItemsGUIConfig() {
+        return ADD_ITEMS_CONFIG.getConfig();
     }
 
-    public ConfigWrapper getBountyCancelGUIConfig() {
-        return BOUNTY_CANCEL_CONFIG;
+    public FileConfiguration getBountyCancelGUIConfig() {
+        return BOUNTY_CANCEL_CONFIG.getConfig();
     }
 
     public BountyManager getBountyManager() {
@@ -603,56 +598,50 @@ public class BountiesPlus extends JavaPlugin implements Listener {
 
     // Inner Class
     /**
-     * Initializes a configuration wrapper for a specific file
-     * // note: Loads or creates a config file with defaults
+     * Loads or creates a configuration file
+     * // note: Initializes a YAML configuration file, copying from resources if missing
      */
-    private class ConfigWrapper {
-        private final File configFile;
-        private FileConfiguration config;
-
-        /**
-         * Loads or creates a configuration file
-         * // note: Initializes a YAML configuration file, copying from resources if missing
-         */
-        ConfigWrapper(String configName) {
-            this.configFile = new File(getDataFolder(), configName);
-            if (!configFile.exists()) {
-                try {
-                    saveResource(configName, false);
-                    if (debugManager != null) {
-                        debugManager.logDebug("[DEBUG - ConfigWrapper] Created default " + configName);
-                    } else {
-                        getLogger().info("[DEBUG - ConfigWrapper] Created default " + configName + " (DebugManager not initialized)");
-                    }
-                } catch (IllegalArgumentException e) {
-                    if (debugManager != null) {
-                        debugManager.logWarning("[DEBUG - ConfigWrapper] Failed to save default " + configName + ": " + e.getMessage());
-                    } else {
-                        getLogger().warning("[DEBUG - ConfigWrapper] Failed to save default " + configName + ": " + e.getMessage());
-                    }
-                }
-            }
-            this.config = YamlConfiguration.loadConfiguration(configFile);
-            // Validate configuration integrity
-            if (config.getKeys(false).isEmpty()) {
-                if (debugManager != null) {
-                    debugManager.logWarning("[DEBUG - ConfigWrapper] " + configName + " is empty, reloading default");
+    ConfigWrapper(String configName) {
+        this.name = configName;
+        this.fullPath = configName;
+        this.file = new File(getDataFolder(), configName);
+        if (!file.exists()) {
+            try {
+                saveResource(configName, false);
+                if (BountiesPlus.this.debugManager != null) {
+                    BountiesPlus.this.debugManager.logDebug("[DEBUG - ConfigWrapper] Created default " + configName);
                 } else {
-                    getLogger().warning("[DEBUG - ConfigWrapper] " + configName + " is empty, reloading default");
+                    getLogger().info("[DEBUG - ConfigWrapper] Created default " + configName + " (DebugManager not initialized)");
                 }
-                try {
-                    configFile.delete();
-                    saveResource(configName, false);
-                    this.config = YamlConfiguration.loadConfiguration(configFile);
-                } catch (IllegalArgumentException e) {
-                    if (debugManager != null) {
-                        debugManager.logWarning("[DEBUG - ConfigWrapper] Failed to reload default " + configName + ": " + e.getMessage());
-                    } else {
-                        getLogger().warning("[DEBUG - ConfigWrapper] Failed to reload default " + configName + ": " + e.getMessage());
-                    }
+            } catch (IllegalArgumentException e) {
+                if (BountiesPlus.this.debugManager != null) {
+                    BountiesPlus.this.debugManager.logWarning("[DEBUG - ConfigWrapper] Failed to save default " + configName + ": " + e.getMessage());
+                } else {
+                    getLogger().warning("[DEBUG - ConfigWrapper] Failed to save default " + configName + ": " + e.getMessage());
                 }
             }
         }
+        this.config = YamlConfiguration.loadConfiguration(file);
+        // Validate configuration integrity
+        if (config.getKeys(false).isEmpty()) {
+            if (BountiesPlus.this.debugManager != null) {
+                BountiesPlus.this.debugManager.logWarning("[DEBUG - ConfigWrapper] " + configName + " is empty, reloading default");
+            } else {
+                getLogger().warning("[DEBUG - ConfigWrapper] " + configName + " is empty, reloading default");
+            }
+            try {
+                file.delete();
+                saveResource(configName, false);
+                this.config = YamlConfiguration.loadConfiguration(file);
+            } catch (IllegalArgumentException e) {
+                if (BountiesPlus.this.debugManager != null) {
+                    BountiesPlus.this.debugManager.logWarning("[DEBUG - ConfigWrapper] Failed to reload default " + configName + ": " + e.getMessage());
+                } else {
+                    getLogger().warning("[DEBUG - ConfigWrapper] Failed to reload default " + configName + ": " + e.getMessage());
+                }
+            }
+        }
+    }
 
         /**
          * Reloads the configuration from disk

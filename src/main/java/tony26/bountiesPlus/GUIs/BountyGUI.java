@@ -199,7 +199,7 @@ public class BountyGUI implements Listener {
             }
         }
 
-        loadBountySkullSlots(config, debugManager != null ? debugManager : new DebugManager());
+        loadBountySkullSlots(config, debugManager != null ? debugManager : new DebugManager(pluginInstance));
         UUID playerUUID = player.getUniqueId();
         playerShowOnlyOnline.putIfAbsent(playerUUID, false);
         playerFilterHighToLow.putIfAbsent(playerUUID, true);

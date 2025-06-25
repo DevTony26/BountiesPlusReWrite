@@ -97,7 +97,7 @@ public class TopGUI implements Listener {
                 if (plugin.getDebugManager() != null) {
                     plugin.getDebugManager().logDebug("[DEBUG - TopGUI] Created default TopGUI.yml");
                 } else {
-                    plugin.getLogger().info("[DEBUG - TopGUI] Created default TopGUI.yml (DebugManager not initialized)");
+                    plugin.getLogger().info("[DEBUG - TopGUI] Created default TopGUI.yml");
                 }
             } catch (IllegalArgumentException e) {
                 if (plugin.getDebugManager() != null) {
@@ -107,7 +107,7 @@ public class TopGUI implements Listener {
                 }
             }
         }
-        config = YamlConfiguration.loadConfiguration(configFile);
+        config = plugin.getTopGUIConfig();
         // Verify configuration integrity
         if (config.getConfigurationSection("Plugin-Items") == null) {
             if (plugin.getDebugManager() != null) {
