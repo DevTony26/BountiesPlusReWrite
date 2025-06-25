@@ -598,10 +598,10 @@ public class BountiesPlus extends JavaPlugin implements Listener {
 
     // Inner Class
     /**
-     * Loads or creates a configuration file
-     * // note: Initializes a YAML configuration file, copying from resources if missing
+     * Initializes a configuration wrapper for a specific file
+     * // note: Loads or creates a config file with defaults
      */
-    ConfigWrapper(String configName) {
+    private ConfigWrapper(String configName) {
         this.name = configName;
         this.fullPath = configName;
         this.file = new File(getDataFolder(), configName);
