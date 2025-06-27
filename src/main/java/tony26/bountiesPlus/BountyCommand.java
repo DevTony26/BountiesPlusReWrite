@@ -100,10 +100,35 @@ public class BountyCommand implements CommandExecutor {
                 return true;
             case "shop":
                 return handleShopCommand(player, args);
+            case "notify":
+                return handleNotifyCommand(player, messagesConfig);
             default:
                 MessageUtils.sendFormattedMessage(player, "bounty-usage");
                 return true;
         }
+    }
+
+    /**
+     * Handles the /bounty notify command
+     * // note: Toggles whether the player receives bounty notification messages
+     */
+    private boolean handleNotifyCommand(Player player, FileConfiguration messagesConfig) {
+        if (!player.hasPermission("bountiesplus.notify.toggle")) {
+            MessageUtils.sendFormattedMessage(player, "no-permission");
+            plugin.getDebugManager().logDebug("[BountyCommand] " + player.getName() + " attempted /bounty notify without permission");
+            return true;
+        }
+
+        UUID playerUUID = player.getUniqueId();
+        boolean currentState = BountiesPlus.getInstance().getNotifySettings().getOrDefault(playerUUID, true);
+        boolean newState = !currentState;
+        BountiesPlus.getInstance().getNotifySettings().put(playerUUID, newState);
+        plugin.saveEverything();
+
+        String messageKey = newState ? "notify-enabled" : "notify-disabled";
+        MessageUtils.sendFormattedMessage(player, messageKey);
+        plugin.getDebugManager().logDebug("[BountyCommand] " + player.getName() + " toggled notifications to " + (newState ? "enabled" : "disabled"));
+        return true;
     }
 
     /**
@@ -512,7 +537,6 @@ public class BountyCommand implements CommandExecutor {
         return true;
     }
 
-
     /**
      * Handles the /bounty set command
      * // note: Processes bounty placement with validation for amount, time, and permissions
@@ -531,7 +555,7 @@ public class BountyCommand implements CommandExecutor {
             target = targetPlayer;
         } else {
             target = Bukkit.getOfflinePlayer(targetName);
-            if (!config.getBoolean("allow-offline-players", true) || !target.hasPlayedBefore()) {
+            if (!config.getBoolean("bounties.allow-offline-players", true) || !target.hasPlayedBefore()) {
                 String notFound = messagesConfig.getString("bounty-player-not-found", "%prefix%&cPlayer &e%target%&c not found.");
                 player.sendMessage(ChatColor.translateAlternateColorCodes('&', notFound.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%target%", targetName)));
                 return true;
@@ -550,7 +574,7 @@ public class BountyCommand implements CommandExecutor {
             return true; // Error message sent by BountyTeamCheck
         }
 
-        boolean restrictSameIP = config.getBoolean("restrict-same-ip-bounties", true);
+        boolean restrictSameIP = config.getBoolean("bounties.restrict-same-ip-bounties", true);
         if (restrictSameIP && target.isOnline()) {
             String setterIP = player.getAddress().getAddress().getHostAddress();
             String targetIP = targetPlayer.getAddress().getAddress().getHostAddress();

@@ -1,6 +1,8 @@
 
 package tony26.bountiesPlus;
 
+import net.md_5.bungee.api.chat.BaseComponent;
+import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -8,7 +10,11 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.entity.Player;
 import tony26.bountiesPlus.utils.DebugManager;
+import tony26.bountiesPlus.utils.MessageUtils;
+import tony26.bountiesPlus.utils.PlaceholderContext;
 
+import java.io.File;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -276,11 +282,7 @@ public class BountyManager {
 
     /**
      * Sets a bounty with specified parameters
-     * // note: Creates or updates a bounty in storage and updates tablist
-     */
-    /**
-     * Sets a bounty with specified parameters
-     * // note: Creates or updates a bounty in storage and updates tablist
+     * // note: Creates or updates a bounty in storage, updates tablist, and broadcasts big bounties
      */
     public void setBounty(UUID setter, UUID target, int amount, long expireTime) {
         DebugManager debugManager = plugin.getDebugManager();
@@ -297,14 +299,39 @@ public class BountyManager {
             saveToYAML(setter, target, amount, 0, 0, false, expireTime, new ArrayList<>());
         }
         Player targetPlayer = Bukkit.getPlayer(target);
-        if (targetPlayer != null) {
-            debugManager.logDebug("[BountyManager] Target player " + targetPlayer.getName() + " is online, scheduling tablist update");
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                plugin.getTablistManager().applyTablistName(targetPlayer);
-            }, 10L);
+        if (targetPlayer != null && BountiesPlus.getInstance().getNotifySettings().getOrDefault(target, true)) {
+            PlaceholderContext context = PlaceholderContext.create()
+                    .player(targetPlayer)
+                    .moneyValue((double) amount)
+                    .setter(setter);
+            MessageUtils.sendFormattedMessage(targetPlayer, "bounty-received", context);
+            debugManager.logDebug("[BountyManager] Sent bounty-received message to " + targetPlayer.getName());
         } else {
-            debugManager.logDebug("[BountyManager] Target player " + target + " is offline, tablist update skipped");
+            debugManager.logDebug("[BountyManager] Skipped bounty-received message for target " + target + ": offline or notifications disabled");
         }
+        // Broadcast big bounty if enabled and amount exceeds threshold
+        if (plugin.getConfig().getBoolean("bounties.big-bounty-broadcast.enabled", true) && amount >= plugin.getConfig().getInt("bounties.big-bounty-broadcast.threshold", 1000)) {
+            List<String> broadcastMessages = plugin.getConfig().getStringList("bounties.big-bounty-broadcast.message");
+            if (!broadcastMessages.isEmpty()) {
+                PlaceholderContext context = PlaceholderContext.create()
+                        .target(target)
+                        .moneyValue((double) amount)
+                        .setter(setter);
+                for (Player onlinePlayer : Bukkit.getServer().getOnlinePlayers()) {
+                    for (String message : broadcastMessages) {
+                        MessageUtils.sendFormattedMessage(onlinePlayer, message, context);
+                    }
+                }
+                debugManager.logDebug("[BountyManager] Broadcasted big bounty for target " + target + ": amount=" + amount);
+            }
+        }
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            Player onlineTarget = Bukkit.getPlayer(target);
+            if (onlineTarget != null) {
+                plugin.getTablistManager().applyTablistName(onlineTarget);
+                debugManager.logDebug("[BountyManager] Updated tablist for target " + onlineTarget.getName());
+            }
+        }, 10L);
     }
 
     /**
@@ -648,6 +675,7 @@ public class BountyManager {
     public void reload(List<String> warnings) {
         loadBounties(warnings);
     }
+
     /**
      * Cleans up the bounty manager
      * // note: Saves bounties and clears the bounties map
@@ -655,10 +683,14 @@ public class BountyManager {
     public void cleanup() {
         saveBounties();
         bounties.clear();
+        manualMoneyBoosts.clear();
+        manualXpBoosts.clear();
+        manualBoostExpireTimes.clear();
     }
 
     /**
-     * Saves all bounty data to storage // note: Persists active bounties and items to YAML
+     * Saves all bounty data to storage
+     * // note: Persists active bounties and items to YAML
      */
     public void saveBounties() {
         FileConfiguration storage = plugin.getBountiesConfig();
@@ -684,6 +716,11 @@ public class BountyManager {
                 storage.set(path + ".items", itemStrings);
             }
         }
-        plugin.saveEverything();
+        try {
+            plugin.getBountiesConfig().save(new File(plugin.getDataFolder(), "Storage/BountyStorage.yml"));
+            plugin.getDebugManager().logDebug("[BountyManager] Successfully saved bounties to BountyStorage.yml");
+        } catch (IOException e) {
+            plugin.getLogger().warning("[DEBUG - BountyManager] Failed to save BountyStorage.yml: " + e.getMessage());
+        }
     }
 }

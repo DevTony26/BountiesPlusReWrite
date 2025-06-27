@@ -12,10 +12,12 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.enchantments.Enchantment;
@@ -26,98 +28,249 @@ import tony26.bountiesPlus.utils.EventManager;
 import tony26.bountiesPlus.utils.*;
 import net.md_5.bungee.api.chat.TextComponent;
 import me.clip.placeholderapi.PlaceholderAPI;
-
 import java.util.stream.Collectors;
-
 import tony26.bountiesPlus.wrappers.VersionWrapper;
 import tony26.bountiesPlus.wrappers.VersionWrapperFactory;
-
 import java.util.*;
 
-public class AddItemsGUI implements Listener {
-
-    private static final String GUI_TITLE = ChatColor.translateAlternateColorCodes('&', "&6Add Items to Bounty");
-
-    // Track instances to prevent multiple listeners
+public class AddItemsGUI implements Listener, InventoryHolder {
     private static final Map<UUID, AddItemsGUI> activeInstances = new HashMap<>();
-
-    // Define protected slots that cannot be modified by players (loaded dynamically)
     private final Set<Integer> protectedSlots = new HashSet<>();
-
-    private final Set<Material> blacklistedItems; // Stores blacklisted materials
-
-    // Track original items state for each player to detect changes
+    private final Set<Material> blacklistedItems;
     private static final Map<UUID, List<ItemStack>> originalItemsState = new HashMap<>();
-
     private final Player player;
     private final Inventory inventory;
+    private final boolean stackItems;
+    private final boolean sortByValue;
+    private final BountiesPlus plugin;
+    private boolean isTransitioningFromCreateGUI = false;
+    private long openTime; // Timestamp when the GUI was opened
+    private static final Map<UUID, Long> lastClickTimes = new HashMap<>();
+
 
     /**
+     * Gets the inventory associated with this GUI
+     * // note: Returns the AddItemsGUI inventory for InventoryHolder interface
+     */
+    @Override
+    public Inventory getInventory() {
+        return inventory;
+    }
+    /**
      * Constructs the AddItemsGUI for a player
-     * // note: Initializes GUI, loads blacklist, and registers listeners
+     * // note: Initializes GUI, loads blacklist, available slots, stacking/sorting settings, and registers listeners
      */
     public AddItemsGUI(Player player, EventManager eventManager) {
+        this.plugin = BountiesPlus.getInstance();
         this.player = player;
-        this.inventory = Bukkit.createInventory(null, 54, GUI_TITLE);
-        FileConfiguration config = BountiesPlus.getInstance().getAddItemsGUIConfig();
-        File configFile = new File(BountiesPlus.getInstance().getDataFolder(), "GUIs/AddItemsGUI.yml");
+        this.isTransitioningFromCreateGUI = true; // Set flag to indicate transition from CreateGUI
+        FileConfiguration config = plugin.getAddItemsGUIConfig();
+        File configFile = new File(plugin.getDataFolder(), "GUIs/AddItemsGUI.yml");
 
         // Verify configuration integrity
         if (!configFile.exists() || config.getConfigurationSection("buttons") == null) {
-            if (BountiesPlus.getInstance().getDebugManager() != null) {
-                BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - AddItemsGUI] AddItemsGUI.yml is missing or invalid, reloading default");
-            } else {
-                BountiesPlus.getInstance().getLogger().warning("[DEBUG - AddItemsGUI] AddItemsGUI.yml is missing or invalid, reloading default");
-            }
+            plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] AddItemsGUI.yml is missing or invalid, reloading default");
             try {
                 if (configFile.exists()) configFile.delete();
-                BountiesPlus.getInstance().saveResource("GUIs/AddItemsGUI.yml", false);
+                plugin.saveResource("GUIs/AddItemsGUI.yml", false);
                 config = YamlConfiguration.loadConfiguration(configFile);
-                if (BountiesPlus.getInstance().getDebugManager() != null) {
-                    BountiesPlus.getInstance().getDebugManager().logDebug("[DEBUG - AddItemsGUI] Reloaded default AddItemsGUI.yml");
-                } else {
-                    BountiesPlus.getInstance().getLogger().info("[DEBUG - AddItemsGUI] Reloaded default AddItemsGUI.yml");
-                }
+                plugin.getDebugManager().logDebug("[DEBUG - AddItemsGUI] Reloaded default AddItemsGUI.yml");
             } catch (IllegalArgumentException e) {
-                if (BountiesPlus.getInstance().getDebugManager() != null) {
-                    BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - AddItemsGUI] Failed to reload default AddItemsGUI.yml: " + e.getMessage());
-                } else {
-                    BountiesPlus.getInstance().getLogger().warning("[DEBUG - AddItemsGUI] Failed to reload default AddItemsGUI.yml: " + e.getMessage());
-                }
+                plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] Failed to reload default AddItemsGUI.yml: " + e.getMessage());
             }
         }
 
+        // Determine GUI title based on session state
+        BountyCreationSession session = BountyCreationSession.getSession(player);
+        String titleKey = (session != null && session.hasItemRewards()) ? "edit-title" : "gui-title";
+        String title = config.getString(titleKey, "          &4&l⚔ &4&l&nAdd Items&4&l &4&l⚔");
+        if (!config.contains(titleKey)) {
+            plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] No " + titleKey + " defined in AddItemsGUI.yml, using default: " + title);
+        }
+        this.inventory = Bukkit.createInventory(this, 54, ChatColor.translateAlternateColorCodes('&', title));
+
         // Load blacklisted items from config.yml
-        FileConfiguration mainConfig = BountiesPlus.getInstance().getConfig();
+        FileConfiguration mainConfig = plugin.getConfig();
         this.blacklistedItems = new HashSet<>();
-        List<String> blacklist = mainConfig.getStringList("blacklisted-items");
+        List<String> blacklist = mainConfig.getStringList("bounties.blacklisted-items");
         for (String materialName : blacklist) {
             try {
                 Material material = Material.valueOf(materialName.toUpperCase());
                 blacklistedItems.add(material);
             } catch (IllegalArgumentException e) {
-                if (BountiesPlus.getInstance().getDebugManager() != null) {
-                    BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - AddItemsGUI] Invalid material in blacklisted-items: " + materialName);
-                } else {
-                    BountiesPlus.getInstance().getLogger().warning("[DEBUG - AddItemsGUI] Invalid material in blacklisted-items: " + materialName);
+                plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] Invalid material in bounties.blacklisted-items: " + materialName);
+            }
+        }
+
+        // Load available slots from AddItemsGUI.yml
+        List<Integer> availableSlots = config.getIntegerList("content-area.available-slots");
+        if (availableSlots.isEmpty()) {
+            availableSlots = Arrays.asList(10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 23, 24, 25, 28, 29, 30, 31, 32, 33, 34, 37, 38, 39, 40, 41, 42, 43);
+            plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] No content-area.available-slots defined in AddItemsGUI.yml, using defaults: " + availableSlots);
+        }
+
+        // Load stacking and sorting settings
+        this.stackItems = config.getBoolean("content-area.stack-items", true);
+        this.sortByValue = config.getBoolean("content-area.stack-items.sort-by-value", true);
+        if (!config.contains("content-area.stack-items")) {
+            plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] No content-area.stack-items defined in AddItemsGUI.yml, defaulting to true");
+        }
+        if (!config.contains("content-area.stack-items.sort-by-value")) {
+            plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] No content-area.stack-items.sort-by-value defined in AddItemsGUI.yml, defaulting to true");
+        }
+
+        // Initialize protected slots (all slots except available-slots and including Custom-Items/buttons slots)
+        this.protectedSlots.clear();
+        Set<Integer> customItemSlots = new HashSet<>();
+        Set<Integer> buttonSlots = new HashSet<>();
+        boolean isEditMode = session != null && session.hasItemRewards();
+
+        // Load custom item slots
+        if (config.contains("Custom-Items")) {
+            for (String key : config.getConfigurationSection("Custom-Items").getKeys(false)) {
+                String basePath = "Custom-Items." + key;
+                String slotsPath = isEditMode && config.contains(basePath + ".edit-mode.slots") ? basePath + ".edit-mode.slots" : basePath + ".slots";
+                if (config.contains(slotsPath)) {
+                    customItemSlots.addAll(config.getIntegerList(slotsPath));
                 }
             }
         }
 
-        // Load protected slots from AddItemsGUI.yml
-        List<Integer> borderSlots = config.getIntegerList("border.slots");
-        if (borderSlots.isEmpty()) {
-            borderSlots = Arrays.asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 18, 26, 27, 35, 36, 44, 45, 46, 48, 50, 52, 53);
+        // Load button slots
+        for (String button : config.getConfigurationSection("buttons").getKeys(false)) {
+            String basePath = "buttons." + button;
+            String slotPath = isEditMode && config.contains(basePath + ".edit-mode.slot") ? basePath + ".edit-mode.slot" : basePath + ".slot";
+            int slot = config.getInt(slotPath, -1);
+            if (slot >= 0 && slot < 54) {
+                buttonSlots.add(slot);
+            }
         }
-        protectedSlots.addAll(borderSlots);
-        protectedSlots.add(config.getInt("buttons.cancel.slot", 47));
-        protectedSlots.add(config.getInt("buttons.info.slot", 49));
-        protectedSlots.add(config.getInt("buttons.confirm.slot", 51));
+
+        // Set protected slots
+        for (int i = 0; i < 54; i++) {
+            if (!availableSlots.contains(i)) {
+                protectedSlots.add(i);
+            }
+        }
+        for (int slot : customItemSlots) {
+            if (availableSlots.contains(slot)) {
+                plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] Custom item slot " + slot + " overlaps with available-slots in AddItemsGUI.yml" + (isEditMode ? " (edit-mode)" : ""));
+            }
+            protectedSlots.add(slot);
+        }
+        for (int slot : buttonSlots) {
+            if (availableSlots.contains(slot)) {
+                plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] Button slot " + slot + " overlaps with available-slots in AddItemsGUI.yml" + (isEditMode ? " (edit-mode)" : ""));
+            }
+            protectedSlots.add(slot);
+        }
+
+        // Log protected slots for debugging
+        plugin.getDebugManager().logDebug("[DEBUG - AddItemsGUI] Protected slots initialized for " + player.getName() + ": " + protectedSlots);
+
+        // Validate slots
+        for (int slot : availableSlots) {
+            if (slot < 0 || slot >= 54) {
+                plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] Invalid content-area.available-slot " + slot + " in AddItemsGUI.yml (must be 0-53)");
+            }
+        }
+        for (int slot : customItemSlots) {
+            if (slot < 0 || slot >= 54) {
+                plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] Invalid Custom-Items slot " + slot + " in AddItemsGUI.yml" + (isEditMode ? " (edit-mode)" : "") + " (must be 0-53)");
+            }
+        }
+        for (int slot : buttonSlots) {
+            if (slot < 0 || slot >= 54) {
+                plugin.getDebugManager().logWarning("[DEBUG - AddItemsGUI] Invalid button slot " + slot + " in AddItemsGUI.yml" + (isEditMode ? " (edit-mode)" : "") + " (must be 0-53)");
+            }
+        }
 
         cleanup(player);
         activeInstances.put(player.getUniqueId(), this);
         eventManager.register(this);
         initializeGUI();
+    }
+
+    /**
+     * Places custom items in the AddItemsGUI
+     * // note: Populates the inventory with decorative items defined in AddItemsGUI.yml, using edit-mode settings when applicable
+     */
+    private void placeCustomItems() {
+        FileConfiguration config = BountiesPlus.getInstance().getAddItemsGUIConfig();
+        DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
+        BountyCreationSession session = BountyCreationSession.getSession(player);
+        boolean isEditMode = session != null && session.hasItemRewards();
+
+        if (!config.contains("Custom-Items")) {
+            debugManager.logDebug("[DEBUG - AddItemsGUI] No Custom-Items section found in AddItemsGUI.yml");
+            return;
+        }
+
+        int totalItems = 0;
+        int successfulItems = 0;
+        List<String> failures = new ArrayList<>();
+
+        for (String key : config.getConfigurationSection("Custom-Items").getKeys(false)) {
+            String basePath = "Custom-Items." + key;
+            String configPath = isEditMode && config.contains(basePath + ".edit-mode") ? basePath + ".edit-mode" : basePath;
+            String materialName = config.getString(configPath + ".material", "STONE");
+            ItemStack item = VersionUtils.getXMaterialItemStack(materialName);
+            String failureReason = null;
+
+            if (item.getType() == Material.STONE && !materialName.equalsIgnoreCase("STONE")) {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Invalid material '" + materialName + "' for custom item " + key + (isEditMode ? " (edit-mode)" : "") + ", using STONE");
+                failureReason = "Invalid material '" + materialName + "'";
+            }
+
+            ItemMeta meta = item.getItemMeta();
+            if (meta == null) {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Failed to get ItemMeta for custom item " + key + (isEditMode ? " (edit-mode)" : ""));
+                failureReason = "Failed to get ItemMeta";
+            } else {
+                String name = config.getString(configPath + ".name", "Item");
+                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', name));
+                List<String> lore = config.getStringList(configPath + ".lore");
+                List<String> processedLore = new ArrayList<>();
+                for (String line : lore) {
+                    processedLore.add(ChatColor.translateAlternateColorCodes('&', line));
+                }
+                meta.setLore(processedLore);
+                if (config.getBoolean(configPath + ".enchantment-glow", false)) {
+                    meta.addEnchant(Enchantment.DURABILITY, 1, true);
+                    meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+                }
+                item.setItemMeta(meta);
+            }
+
+            List<Integer> slots = config.getIntegerList(configPath + ".slots");
+            totalItems += slots.size();
+            for (int slot : slots) {
+                if (slot >= 0 && slot < inventory.getSize()) {
+                    if (failureReason == null) {
+                        inventory.setItem(slot, item.clone());
+                        successfulItems++;
+                    } else {
+                        failures.add(key + " slot " + slot + " Reason: " + failureReason);
+                    }
+                } else {
+                    debugManager.logWarning("[DEBUG - AddItemsGUI] Invalid slot " + slot + " for custom item " + key + (isEditMode ? " (edit-mode)" : "") + " in AddItemsGUI.yml");
+                    failures.add(key + " slot " + slot + " Reason: Invalid slot");
+                }
+            }
+        }
+
+        // Log consolidated debug message
+        if (successfulItems == totalItems && totalItems > 0) {
+            debugManager.logDebug("[DEBUG - AddItemsGUI] All " + totalItems + " custom items created" + (isEditMode ? " (edit-mode)" : ""));
+        } else if (totalItems > 0) {
+            String failureMessage = "[DEBUG - AddItemsGUI] " + successfulItems + "/" + totalItems + " custom items created" + (isEditMode ? " (edit-mode)" : "");
+            if (!failures.isEmpty()) {
+                failureMessage += ", failed to create: " + String.join(", ", failures);
+            }
+            debugManager.bufferFailure("AddItemsGUI_custom_items_" + System.currentTimeMillis(), failureMessage);
+        } else {
+            debugManager.logDebug("[DEBUG - AddItemsGUI] No custom item slots defined" + (isEditMode ? " (edit-mode)" : ""));
+        }
     }
 
     /**
@@ -151,7 +304,8 @@ public class AddItemsGUI implements Listener {
     }
 
     /**
-     * Checks if an item is blacklisted // note: Returns true if the item's material or NBT tags match the blacklist
+     * Checks if an item is blacklisted
+     * // note: Returns true if the item's material or NBT tags match the blacklist
      */
     private boolean isBlacklisted(ItemStack item) {
         if (item == null || item.getType() == Material.AIR) {
@@ -161,7 +315,7 @@ public class AddItemsGUI implements Listener {
             return true;
         }
         FileConfiguration config = BountiesPlus.getInstance().getConfig();
-        List<Map<?, ?>> nbtBlacklist = config.getMapList("blacklisted-nbt-items");
+        List<Map<?, ?>> nbtBlacklist = config.getMapList("bounties.blacklisted-nbt-items");
         for (Map<?, ?> entry : nbtBlacklist) {
             String nbtKey = (String) entry.get("nbt_key");
             String nbtValue = (String) entry.get("nbt_value");
@@ -211,37 +365,125 @@ public class AddItemsGUI implements Listener {
         originalItemsState.remove(playerUUID);
     }
 
+    /**
+     * Initializes the AddItemsGUI
+     * // note: Sets up buttons, custom items, clears available slots, and loads existing items
+     */
     private void initializeGUI() {
-        // Create border
-        addBorders();
+        FileConfiguration config = plugin.getAddItemsGUIConfig();
+        DebugManager debugManager = plugin.getDebugManager();
+        BountyCreationSession session = BountyCreationSession.getSession(player);
+        boolean isEditMode = session != null && session.hasItemRewards();
 
-        // Add bottom row buttons
+        // Clear available slots
+        List<Integer> availableSlots = config.getIntegerList("content-area.available-slots");
+        for (int slot : availableSlots) {
+            if (slot >= 0 && slot < inventory.getSize()) {
+                inventory.setItem(slot, null);
+            }
+        }
+
+        // Place custom items
+        placeCustomItems();
+
+        // Place buttons
         addBottomRowButtons(inventory);
 
         // Load existing items from session
         loadExistingItems(player, inventory);
 
-        // Store the initial state
+        // Store original items state
         storeOriginalItemsState(player, inventory);
-    }
 
+        // Schedule inventory open with a delay
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            openTime = System.currentTimeMillis(); // Record open time
+            player.openInventory(inventory);
+            // Set flag to false after a short delay
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                isTransitioningFromCreateGUI = false;
+            }, 5L); // 5 ticks delay
+            debugManager.logDebug("[DEBUG - AddItemsGUI] Opened AddItemsGUI for player: " + player.getName() + (isEditMode ? " (edit-mode)" : "") + ", title: '" + inventory.getViewers().get(0).getOpenInventory().getTitle() + "', protected slots: " + protectedSlots);
+        }, 2L);
+    }
+    /**
+     * Loads existing items from the session into the GUI
+     * // note: Places items from BountyCreationSession into available slots, respecting stacking and sorting settings
+     */
     private void loadExistingItems(Player player, Inventory inventory) {
         BountyCreationSession session = BountyCreationSession.getSession(player);
-        if (session != null && session.hasItemRewards()) {
-            List<ItemStack> existingItems = session.getItemRewards();
+        DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
+        FileConfiguration config = BountiesPlus.getInstance().getAddItemsGUIConfig();
+        List<Integer> availableSlots = config.getIntegerList("content-area.available-slots");
 
-            // Place existing items in content area slots
-            int slotIndex = 0;
-            for (int i = 0; i < 54 && slotIndex < existingItems.size(); i++) {
-                if (!protectedSlots.contains(i)) {
-                    ItemStack item = existingItems.get(slotIndex);
-                    if (item != null) {
-                        inventory.setItem(i, item.clone());
+        if (session == null || !session.hasItemRewards()) {
+            debugManager.logDebug("[DEBUG - AddItemsGUI] No session or item rewards for " + player.getName() + ", skipping loadExistingItems");
+            return;
+        }
+
+        List<ItemStack> existingItems = session.getItemRewards();
+        List<ItemStack> processedItems;
+
+        // Apply stacking if enabled
+        if (stackItems) {
+            processedItems = new ArrayList<>();
+            Map<String, ItemStack> itemMap = new HashMap<>();
+            for (ItemStack item : existingItems) {
+                if (item == null || item.getType() == Material.AIR) continue;
+                String key = item.getType().name() + ":" + (item.hasItemMeta() ? item.getItemMeta().toString() : "");
+                if (item.getMaxStackSize() > 1) {
+                    ItemStack existing = itemMap.get(key);
+                    if (existing != null && existing.isSimilar(item)) {
+                        int newAmount = existing.getAmount() + item.getAmount();
+                        existing.setAmount(Math.min(newAmount, existing.getMaxStackSize()));
+                    } else {
+                        ItemStack clonedItem = item.clone();
+                        clonedItem.setAmount(Math.min(clonedItem.getAmount(), clonedItem.getMaxStackSize()));
+                        itemMap.put(key, clonedItem);
                     }
-                    slotIndex++;
+                } else {
+                    itemMap.put(UUID.randomUUID().toString(), item.clone());
                 }
             }
+            processedItems.addAll(itemMap.values());
+        } else {
+            processedItems = existingItems.stream()
+                    .filter(item -> item != null && item.getType() != Material.AIR)
+                    .map(ItemStack::clone)
+                    .collect(Collectors.toList());
         }
+
+        // Apply sorting
+        ItemValueCalculator calculator = BountiesPlus.getInstance().getItemValueCalculator();
+        if (sortByValue) {
+            processedItems.sort((a, b) -> {
+                double valueA = calculator.calculateItemValue(a);
+                double valueB = calculator.calculateItemValue(b);
+                return Double.compare(valueB, valueA); // Highest to lowest
+            });
+        } else {
+            processedItems.sort(Comparator.comparing(item -> item.getType().name()));
+        }
+
+        // Place items in available slots
+        int slotIndex = 0;
+        for (ItemStack item : processedItems) {
+            while (slotIndex < availableSlots.size()) {
+                int slot = availableSlots.get(slotIndex);
+                if (!protectedSlots.contains(slot)) {
+                    inventory.setItem(slot, item.clone());
+                    slotIndex++;
+                    break;
+                }
+                slotIndex++;
+            }
+            if (slotIndex >= availableSlots.size()) {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Not enough available slots to load all items for " + player.getName());
+                break;
+            }
+        }
+
+        debugManager.logDebug("[DEBUG - AddItemsGUI] Loaded " + processedItems.size() + " items for " + player.getName() + " with stackItems=" + stackItems + ", sortByValue=" + sortByValue);
     }
 
     private void storeOriginalItemsState(Player player, Inventory inventory) {
@@ -259,78 +501,6 @@ public class AddItemsGUI implements Listener {
         }
 
         originalItemsState.put(player.getUniqueId(), originalItems);
-    }
-
-    /**
-     * Adds border items to the GUI based on configuration
-     * // note: Populates border slots with configured material
-     */
-    private void addBorders() {
-        FileConfiguration config = BountiesPlus.getInstance().getAddItemsGUIConfig();
-        DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
-
-        if (!config.getBoolean("border.enabled", true)) {
-            debugManager.logDebug("[DEBUG - AddItemsGUI] Borders disabled in AddItemsGUI.yml");
-            return;
-        }
-
-        String materialName = config.getString("border.material", "WHITE_STAINED_GLASS_PANE");
-        String name = config.getString("border.name", " ");
-        List<String> lore = config.getStringList("border.lore");
-        boolean enchantmentGlow = config.getBoolean("border.enchantment-glow", false);
-        List<Integer> borderSlots = config.getIntegerList("border.slots");
-
-        if (borderSlots.isEmpty()) {
-            borderSlots = Arrays.asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 18, 26, 27, 35, 36, 44, 45, 46, 48, 50, 52, 53);
-        }
-
-        ItemStack borderItem = VersionUtils.getXMaterialItemStack(materialName);
-        if (borderItem.getType() == Material.STONE && !materialName.equalsIgnoreCase("WHITE_STAINED_GLASS_PANE")) {
-            debugManager.logWarning("[DEBUG - AddItemsGUI] Invalid border material '" + materialName + "' in AddItemsGUI.yml, using WHITE_STAINED_GLASS_PANE");
-            borderItem = VersionUtils.getXMaterialItemStack("WHITE_STAINED_GLASS_PANE");
-        }
-
-        ItemMeta borderMeta = borderItem.getItemMeta();
-        if (borderMeta != null) {
-            borderMeta.setDisplayName(ChatColor.translateAlternateColorCodes('&', name));
-            if (!lore.isEmpty()) {
-                PlaceholderContext context = PlaceholderContext.create().player(player);
-                List<String> processedLore = Placeholders.apply(lore, context);
-                borderMeta.setLore(processedLore);
-            }
-            if (enchantmentGlow) {
-                borderMeta.addEnchant(Enchantment.DURABILITY, 1, true);
-                borderMeta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-            }
-            borderItem.setItemMeta(borderMeta);
-        } else {
-            debugManager.logWarning("[DEBUG - AddItemsGUI] Failed to get ItemMeta for border item");
-        }
-
-        int totalItems = borderSlots.size();
-        int successfulItems = 0;
-        List<String> failures = new ArrayList<>();
-
-        for (int slot : borderSlots) {
-            if (slot >= 0 && slot < inventory.getSize()) {
-                inventory.setItem(slot, borderItem.clone());
-                protectedSlots.add(slot);
-                successfulItems++;
-            } else {
-                debugManager.logWarning("[DEBUG - AddItemsGUI] Invalid slot " + slot + " in AddItemsGUI.yml border configuration (must be 0-" + (inventory.getSize() - 1) + ")");
-                failures.add("border-slot-" + slot + " Reason: Invalid slot " + slot);
-            }
-        }
-
-        if (successfulItems == totalItems) {
-            debugManager.logDebug("[DEBUG - AddItemsGUI] All border items created");
-        } else {
-            String failureMessage = "[DEBUG - AddItemsGUI] " + successfulItems + "/" + totalItems + " border items created";
-            if (!failures.isEmpty()) {
-                failureMessage += ", failed to create: " + String.join(", ", failures);
-            }
-            debugManager.bufferFailure("AddItemsGUI_border_" + System.currentTimeMillis(), failureMessage);
-        }
     }
 
     public void openInventory(Player player) {
@@ -550,18 +720,22 @@ public class AddItemsGUI implements Listener {
     }
 
     /**
-     * Updates the Confirm button's lore with current GUI item count and value // note: Refreshes Confirm button to reflect unconfirmed items
+     * Updates the Confirm button's lore with current GUI item count and value
+     * // note: Refreshes Confirm button to reflect unconfirmed items, using edit-mode settings when applicable
      */
     private void updateConfirmButton(Inventory gui) {
         FileConfiguration config = BountiesPlus.getInstance().getAddItemsGUIConfig();
-        int slot = config.getInt("buttons.confirm.slot", 51);
+        BountyCreationSession session = BountyCreationSession.getSession(player);
+        boolean isEditMode = session != null && session.hasItemRewards();
+        int slot = config.getInt(isEditMode ? "buttons.confirm.edit-mode.slot" : "buttons.confirm.slot", 51);
         ItemStack confirmButton = gui.getItem(slot);
         if (confirmButton == null || confirmButton.getType() == Material.AIR) {
             return;
         }
         ItemMeta confirmMeta = confirmButton.getItemMeta();
         if (confirmMeta != null) {
-            List<String> lore = config.getStringList("buttons.confirm.lore");
+            String configPath = isEditMode ? "buttons.confirm.edit-mode" : "buttons.confirm";
+            List<String> lore = config.getStringList(configPath + ".lore");
             if (lore.isEmpty()) {
                 lore = Arrays.asList(
                         "&7Click to confirm these items",
@@ -570,7 +744,7 @@ public class AddItemsGUI implements Listener {
                         "&aItems will be saved!",
                         "",
                         "&7Total items: &f%bountiesplus_gui_item_count%",
-                        "&7Total value: &a$%bountiesplus_gui_item_value%"
+                        "&7Total value: &a%bountiesplus_gui_item_value%"
                 );
             }
             PlaceholderContext context = PlaceholderContext.create().player(player);
@@ -639,143 +813,530 @@ public class AddItemsGUI implements Listener {
         }, reopenDelay);
     }
 
+// file: java/tony26/bountiesPlus/GUIs/AddItemsGUI.java
+
     /**
-     * Handles inventory click events for the AddItemsGUI // note: Manages item placement, button interactions, and blacklist checks
+     * Handles inventory click events for the AddItemsGUI
+     * // note: Manages item placement, removal, button interactions, and blacklist checks in available slots, applies stacking and sorting, ignores player inventory interactions
      */
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (!(event.getWhoClicked() instanceof Player)) return;
-        if (!event.getView().getTitle().equals(GUI_TITLE)) return;
-
         Player player = (Player) event.getWhoClicked();
-        int slot = event.getSlot();
-        ItemStack currentItem = event.getCurrentItem();
-        ItemStack cursorItem = event.getCursor();
-        DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
+        if (!player.equals(this.player)) return;
 
-        // Get or create session
-        BountyCreationSession session = BountyCreationSession.getOrCreateSession(player);
-
-        // Check for blacklisted cursor item when placing in top inventory
-        if (slot < 54 && !protectedSlots.contains(slot) && cursorItem != null && isBlacklisted(cursorItem)) {
-            event.setCancelled(true);
-            handleBlacklistedItem(player, cursorItem.clone());
+        // Verify the inventory is the correct one
+        FileConfiguration config = plugin.getAddItemsGUIConfig();
+        boolean isEditMode = BountyCreationSession.getSession(player) != null && BountyCreationSession.getSession(player).hasItemRewards();
+        String expectedTitle = ChatColor.translateAlternateColorCodes('&', config.getString(
+                isEditMode ? "edit-title" : "gui-title", "          &4&l⚔ &4&l&nAdd Items&4&l &4&l⚔"));
+        if (!event.getView().getTitle().equals(expectedTitle) || event.getInventory().getHolder() != this) {
+            plugin.getDebugManager().bufferDebug("[DEBUG - AddItemsGUI] Ignored click by " + player.getName() + ": title mismatch, expected '" + expectedTitle + "', got '" + event.getView().getTitle() + "' or invalid holder");
             return;
         }
 
-        // Protect clicks in top inventory (AddItemsGUI, slots 0-53)
-        if (slot < 54) {
-            if (protectedSlots.contains(slot)) {
-                event.setCancelled(true);
-                if (currentItem == null || !currentItem.hasItemMeta()) return;
+        // Prevent rapid clicks
+        long currentTime = System.currentTimeMillis();
+        Long lastClickTime = lastClickTimes.get(player.getUniqueId());
+        if (lastClickTime != null && currentTime - lastClickTime < 500) {
+            plugin.getDebugManager().logDebug("[DEBUG - AddItemsGUI] Ignored rapid click by " + player.getName() + " on slot " + event.getSlot());
+            return;
+        }
+        lastClickTimes.put(player.getUniqueId(), currentTime);
 
-                // Handle button clicks
-                if (slot == 47) { // Cancel button
-                    debugManager.bufferDebug("Cancel button clicked by " + player.getName());
-                    handleCancelButton(player, event.getInventory());
-                } else if (slot == 49) { // Info button
-                    debugManager.bufferDebug("Info button clicked by " + player.getName());
-                    // Informational only, no action needed
-                } else if (slot == 51) { // Confirm button
-                    debugManager.bufferDebug("Confirm button clicked by " + player.getName());
-                    handleConfirmButton(player, event.getInventory());
-                }
-                return;
-            } else {
-                // Allow item interaction in content area
-                Bukkit.getScheduler().runTask(BountiesPlus.getInstance(), () -> updateConfirmButton(event.getInventory()));
-            }
-        } else {
-            // Allow clicks in player inventory
-            Bukkit.getScheduler().runTask(BountiesPlus.getInstance(), () -> updateConfirmButton(event.getInventory()));
+        int rawSlot = event.getRawSlot();
+        ItemStack currentItem = event.getCurrentItem();
+        ItemStack cursorItem = event.getCursor();
+        ClickType clickType = event.getClick();
+        DebugManager debugManager = plugin.getDebugManager();
+        debugManager.logDebug("[DEBUG - AddItemsGUI] Click by " + player.getName() + " on rawSlot " + rawSlot + ", clickType=" + clickType + ", currentItem=" + (currentItem != null ? currentItem.getType().name() : "null") + ", cursorItem=" + (cursorItem != null ? cursorItem.getType().name() : "null"));
+
+        // Completely ignore player inventory interactions (raw slots >= inventory size)
+        if (rawSlot >= inventory.getSize()) {
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Ignoring player inventory interaction on rawSlot " + rawSlot + " by " + player.getName());
+            return;
         }
 
-        // Handle shift-clicking from player inventory
-        if (event.isShiftClick() && slot >= 54 && currentItem != null && currentItem.getType() != Material.AIR) {
-            if (isBlacklisted(currentItem)) {
-                event.setCancelled(true);
-                handleBlacklistedItem(player, currentItem.clone());
+        // Cancel all GUI interactions to control manually
+        event.setCancelled(true);
+
+        // Block any interaction with protected slots (buttons, custom items)
+        if (protectedSlots.contains(rawSlot)) {
+            int cancelSlot = config.getInt(isEditMode ? "buttons.cancel.edit-mode.slot" : "buttons.cancel.slot", 47);
+            int confirmSlot = config.getInt(isEditMode ? "buttons.confirm.edit-mode.slot" : "buttons.confirm.slot", 51);
+            int infoSlot = config.getInt(isEditMode ? "buttons.info.edit-mode.slot" : "buttons.info.slot", 49);
+
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Protected slot " + rawSlot + " accessed by " + player.getName() + ", cancelSlot=" + cancelSlot + ", confirmSlot=" + confirmSlot + ", infoSlot=" + infoSlot);
+
+            // Handle button clicks
+            if (rawSlot == cancelSlot && clickType == ClickType.LEFT) {
+                debugManager.logDebug("[DEBUG - AddItemsGUI] Cancel button clicked by " + player.getName());
+                handleCancelButton(player, event.getInventory());
+            } else if (rawSlot == infoSlot && clickType == ClickType.LEFT) {
+                debugManager.logDebug("[DEBUG - AddItemsGUI] Info button clicked by " + player.getName());
+                // Informational only, no action
+            } else if (rawSlot == confirmSlot && clickType == ClickType.LEFT) {
+                debugManager.logDebug("[DEBUG - AddItemsGUI] Confirm button clicked by " + player.getName());
+                handleConfirmButton(player, event.getInventory());
+            } else {
+                // Protected slot (e.g., custom items or invalid button action), send feedback
+                FileConfiguration messagesConfig = plugin.getMessagesConfig();
+                String message = messagesConfig.getString("cannot-place-items", "&cYou cannot place or remove items in this slot!");
+                MessageUtils.sendFormattedMessage(player, message);
+                debugManager.bufferDebug("[DEBUG - AddItemsGUI] Blocked interaction with protected slot " + rawSlot + " by " + player.getName());
+            }
+            return;
+        }
+
+        // Get or create session
+        BountyCreationSession session = BountyCreationSession.getOrCreateSession(player);
+        List<Integer> availableSlots = config.getIntegerList("content-area.available-slots");
+
+        // Verify slot is in available slots
+        if (!availableSlots.contains(rawSlot)) {
+            debugManager.logWarning("[DEBUG - AddItemsGUI] Click on non-available slot " + rawSlot + " by " + player.getName() + ", available slots: " + availableSlots);
+            return;
+        }
+
+        // Handle available slots (defined in content-area.available-slots)
+        List<ItemStack> collectedItems = new ArrayList<>();
+        for (int i = 0; i < inventory.getSize(); i++) {
+            if (!protectedSlots.contains(i) && availableSlots.contains(i)) {
+                ItemStack item = inventory.getItem(i);
+                if (item != null && item.getType() != Material.AIR) {
+                    collectedItems.add(item.clone());
+                }
+            }
+        }
+
+        if (clickType == ClickType.LEFT && cursorItem != null && cursorItem.getType() != Material.AIR) {
+            // Left-click with cursor item: place or swap
+            if (isBlacklisted(cursorItem)) {
+                handleBlacklistedItem(player, cursorItem.clone());
                 return;
             }
-
-            // Find first available slot in content area
-            Inventory topInventory = event.getInventory();
-            for (int i = 10; i <= 43; i++) {
-                if (!protectedSlots.contains(i) && (topInventory.getItem(i) == null || topInventory.getItem(i).getType() == Material.AIR)) {
-                    Bukkit.getScheduler().runTask(BountiesPlus.getInstance(), () -> updateConfirmButton(topInventory));
+            ItemStack itemToPlace = cursorItem.clone();
+            if (itemToPlace.getAmount() > itemToPlace.getMaxStackSize()) {
+                itemToPlace.setAmount(itemToPlace.getMaxStackSize());
+            }
+            if (stackItems && itemToPlace.getMaxStackSize() > 1) {
+                // Try to stack with existing items
+                boolean stacked = false;
+                for (ItemStack existing : collectedItems) {
+                    if (existing.isSimilar(itemToPlace) && existing.getAmount() < existing.getMaxStackSize()) {
+                        int totalAmount = existing.getAmount() + itemToPlace.getAmount();
+                        if (totalAmount <= existing.getMaxStackSize()) {
+                            existing.setAmount(totalAmount);
+                            event.setCursor(null);
+                            stacked = true;
+                            break;
+                        } else {
+                            int remaining = totalAmount - existing.getMaxStackSize();
+                            existing.setAmount(existing.getMaxStackSize());
+                            itemToPlace.setAmount(remaining);
+                        }
+                    }
+                }
+                if (!stacked && collectedItems.size() < availableSlots.size()) {
+                    collectedItems.add(itemToPlace);
+                    event.setCursor(null);
+                } else if (!stacked) {
+                    FileConfiguration messagesConfig = plugin.getMessagesConfig();
+                    String message = messagesConfig.getString("no-empty-slots", "&cNo empty slots available in the item GUI!");
+                    MessageUtils.sendFormattedMessage(player, message);
+                    debugManager.bufferDebug("[DEBUG - AddItemsGUI] No empty slots for left-click placement by " + player.getName());
+                    return;
+                }
+            } else {
+                // Place in the clicked slot or swap
+                if (currentItem == null || currentItem.getType() == Material.AIR) {
+                    if (collectedItems.size() < availableSlots.size()) {
+                        collectedItems.add(itemToPlace);
+                        event.setCursor(null);
+                    } else {
+                        FileConfiguration messagesConfig = plugin.getMessagesConfig();
+                        String message = messagesConfig.getString("no-empty-slots", "&cNo empty slots available in the item GUI!");
+                        MessageUtils.sendFormattedMessage(player, message);
+                        debugManager.bufferDebug("[DEBUG - AddItemsGUI] No empty slots for left-click placement by " + player.getName());
+                        return;
+                    }
+                } else {
+                    collectedItems.removeIf(item -> item == currentItem); // Remove the current item
+                    collectedItems.add(itemToPlace);
+                    event.setCursor(currentItem.clone());
+                }
+            }
+        } else if (clickType == ClickType.RIGHT && cursorItem != null && cursorItem.getType() != Material.AIR) {
+            // Right-click with cursor item: place one item
+            if (isBlacklisted(cursorItem)) {
+                handleBlacklistedItem(player, cursorItem.clone());
+                return;
+            }
+            ItemStack itemToPlace = cursorItem.clone();
+            itemToPlace.setAmount(1);
+            if (stackItems && itemToPlace.getMaxStackSize() > 1) {
+                boolean stacked = false;
+                for (ItemStack existing : collectedItems) {
+                    if (existing.isSimilar(itemToPlace) && existing.getAmount() < existing.getMaxStackSize()) {
+                        existing.setAmount(existing.getAmount() + 1);
+                        cursorItem.setAmount(cursorItem.getAmount() - 1);
+                        event.setCursor(cursorItem.getAmount() <= 0 ? null : cursorItem);
+                        stacked = true;
+                        break;
+                    }
+                }
+                if (!stacked && collectedItems.size() < availableSlots.size()) {
+                    collectedItems.add(itemToPlace);
+                    cursorItem.setAmount(cursorItem.getAmount() - 1);
+                    event.setCursor(cursorItem.getAmount() <= 0 ? null : cursorItem);
+                } else if (!stacked) {
+                    FileConfiguration messagesConfig = plugin.getMessagesConfig();
+                    String message = messagesConfig.getString("no-empty-slots", "&cNo empty slots available in the item GUI!");
+                    MessageUtils.sendFormattedMessage(player, message);
+                    debugManager.bufferDebug("[DEBUG - AddItemsGUI] No empty slots for right-click placement by " + player.getName());
+                    return;
+                }
+            } else {
+                if (currentItem == null || currentItem.getType() == Material.AIR) {
+                    if (collectedItems.size() < availableSlots.size()) {
+                        collectedItems.add(itemToPlace);
+                        cursorItem.setAmount(cursorItem.getAmount() - 1);
+                        event.setCursor(cursorItem.getAmount() <= 0 ? null : cursorItem);
+                    } else {
+                        FileConfiguration messagesConfig = plugin.getMessagesConfig();
+                        String message = messagesConfig.getString("no-empty-slots", "&cNo empty slots available in the item GUI!");
+                        MessageUtils.sendFormattedMessage(player, message);
+                        debugManager.bufferDebug("[DEBUG - AddItemsGUI] No empty slots for right-click placement by " + player.getName());
+                        return;
+                    }
+                } else {
+                    // Right-click does not swap; ignore if slot is occupied
+                    debugManager.bufferDebug("[DEBUG - AddItemsGUI] Ignored right-click on occupied slot " + rawSlot + " by " + player.getName());
                     return;
                 }
             }
-
-            event.setCancelled(true);
-            FileConfiguration messagesConfig = BountiesPlus.getInstance().getMessagesConfig();
-            String noEmptySlots = messagesConfig.getString("no-empty-slots", "&cNo empty slots available in the item GUI!");
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', noEmptySlots));
+        } else if (clickType == ClickType.LEFT && currentItem != null && currentItem.getType() != Material.AIR && (cursorItem == null || cursorItem.getType() == Material.AIR)) {
+            // Left-click with empty cursor: remove item from GUI (do not return to player)
+            collectedItems.removeIf(item -> item == currentItem);
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Removed item " + currentItem.getType().name() + " x" + currentItem.getAmount() + " from slot " + rawSlot + " by " + player.getName() + " (not returned, pending Confirm)");
+        } else {
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Ignored click type " + clickType + " on slot " + rawSlot + " by " + player.getName());
+            return;
         }
+
+        // Sort items
+        ItemValueCalculator calculator = plugin.getItemValueCalculator();
+        if (sortByValue) {
+            collectedItems.sort((a, b) -> {
+                double valueA = calculator.calculateItemValue(a);
+                double valueB = calculator.calculateItemValue(b);
+                return Double.compare(valueB, valueA); // Highest to lowest
+            });
+        } else {
+            collectedItems.sort(Comparator.comparing(item -> item.getType().name()));
+        }
+
+        // Clear available slots
+        for (int slot : availableSlots) {
+            inventory.setItem(slot, null);
+        }
+
+        // Place items in available slots
+        int slotIndex = 0;
+        for (ItemStack item : collectedItems) {
+            if (slotIndex >= availableSlots.size()) {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Not enough available slots to place all items for " + player.getName());
+                returnItemToPlayer(player, item);
+                continue;
+            }
+            int slot = availableSlots.get(slotIndex);
+            inventory.setItem(slot, item.clone());
+            slotIndex++;
+        }
+
+        // Schedule Confirm button update and inventory sync
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            updateConfirmButton(inventory);
+            player.updateInventory();
+        });
     }
     /**
-     * Handles inventory drag events for the AddItemsGUI // note: Manages drag interactions and blacklist checks
+     * Handles inventory drag events for the AddItemsGUI
+     * // note: Manages drag interactions and blacklist checks in available slots, applies stacking and sorting, allows player inventory drags
      */
     @EventHandler
     public void onInventoryDrag(InventoryDragEvent event) {
         if (!(event.getWhoClicked() instanceof Player)) return;
-        if (!event.getView().getTitle().equals(GUI_TITLE)) return;
+        if (!event.getView().getTitle().equals(inventory.getViewers().get(0).getOpenInventory().getTitle())) {
+            plugin.getDebugManager().bufferDebug("[DEBUG - AddItemsGUI] Ignored drag by " + ((Player) event.getWhoClicked()).getName() + ": title mismatch, expected '" + inventory.getViewers().get(0).getOpenInventory().getTitle() + "', got '" + event.getView().getTitle() + "'");
+            return;
+        }
 
         Player player = (Player) event.getWhoClicked();
         Set<Integer> dragSlots = event.getRawSlots();
-        DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
+        ItemStack cursorItem = event.getOldCursor();
+        DebugManager debugManager = plugin.getDebugManager();
+        debugManager.logDebug("[DEBUG - AddItemsGUI] Drag by " + player.getName() + " on slots " + dragSlots + ", cursorItem=" + (cursorItem != null ? cursorItem.getType().name() : "null"));
 
-        // Check for protected slots in top inventory
+        // Allow drags entirely in player inventory (all slots >= 54)
+        boolean allPlayerInventory = dragSlots.stream().allMatch(slot -> slot >= 54);
+        if (allPlayerInventory) {
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Allowing drag in player inventory on slots " + dragSlots + " by " + player.getName());
+            return;
+        }
+
+        // Cancel drags involving protected slots
         boolean hasProtectedSlots = dragSlots.stream().anyMatch(slot -> slot < 54 && protectedSlots.contains(slot));
         if (hasProtectedSlots) {
             event.setCancelled(true);
+            FileConfiguration messagesConfig = plugin.getMessagesConfig();
+            String message = messagesConfig.getString("cannot-place-items", "&cYou cannot place or remove items in this slot!");
+            MessageUtils.sendFormattedMessage(player, message);
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Drag cancelled due to protected slots " + dragSlots + " by " + player.getName());
             return;
         }
 
         // Check for blacklisted items
-        ItemStack cursorItem = event.getOldCursor();
         if (isBlacklisted(cursorItem)) {
             event.setCancelled(true);
             handleBlacklistedItem(player, cursorItem.clone());
             return;
         }
 
-        // Allow dragging to content area
-        Bukkit.getScheduler().runTask(BountiesPlus.getInstance(), () -> updateConfirmButton(event.getView().getTopInventory()));
-    }
-
-    @EventHandler
-    public void onInventoryClose(InventoryCloseEvent event) {
-        // Only handle events for this specific player and inventory
-        if (!event.getPlayer().equals(this.player)) return;
-        if (!event.getView().getTitle().equals(GUI_TITLE)) return;
-
-        // Clean up when inventory closes
-        cleanup(this.player);
-    }
-
-    /**
-     * Handles the Cancel button click in the AddItemsGUI // note: Discards changes and returns to CreateGUI
-     */
-    private void handleCancelButton(Player player, Inventory inventory) {
-        DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
-        FileConfiguration messagesConfig = BountiesPlus.getInstance().getMessagesConfig();
-
-        if (hasItemsChanged(player, inventory)) {
-            String message = messagesConfig.getString("changes-discarded", "&eChanges discarded. Use Confirm to save item changes.");
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', message));
-            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Changes discarded for " + player.getName());
-        } else {
-            String message = messagesConfig.getString("no-changes", "&eReturned to Create Bounty GUI. No changes were made.");
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', message));
-            debugManager.bufferDebug("[DEBUG - AddItemsGUI] No changes detected for " + player.getName());
+        // Process drag across available slots
+        Inventory topInventory = event.getView().getTopInventory();
+        FileConfiguration config = plugin.getAddItemsGUIConfig();
+        List<Integer> availableSlots = config.getIntegerList("content-area.available-slots");
+        List<Integer> validDragSlots = dragSlots.stream()
+                .filter(slot -> slot < 54 && availableSlots.contains(slot))
+                .collect(Collectors.toList());
+        if (validDragSlots.isEmpty()) {
+            event.setCancelled(true);
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Drag cancelled: no valid available slots in " + dragSlots + " by " + player.getName());
+            return;
         }
 
+        // Verify all drag slots are in available slots
+        if (!dragSlots.stream().allMatch(slot -> slot >= 54 || availableSlots.contains(slot))) {
+            event.setCancelled(true);
+            debugManager.logWarning("[DEBUG - AddItemsGUI] Drag cancelled: some slots " + dragSlots + " not in available slots " + availableSlots + " by " + player.getName());
+            return;
+        }
+
+        // Collect current items
+        List<ItemStack> collectedItems = new ArrayList<>();
+        for (int i = 0; i < topInventory.getSize(); i++) {
+            if (!protectedSlots.contains(i) && availableSlots.contains(i)) {
+                ItemStack item = topInventory.getItem(i);
+                if (item != null && item.getType() != Material.AIR) {
+                    collectedItems.add(item.clone());
+                }
+            }
+        }
+
+        int totalAmount = cursorItem.getAmount();
+        int slotsToFill = validDragSlots.size();
+        if (slotsToFill == 0) {
+            event.setCancelled(true);
+            return;
+        }
+
+        int amountPerSlot = totalAmount / slotsToFill;
+        int remainder = totalAmount % slotsToFill;
+        boolean noSpace = false;
+
+        if (stackItems && cursorItem.getMaxStackSize() > 1) {
+            // Try to stack with existing items
+            for (ItemStack existing : collectedItems) {
+                if (existing.isSimilar(cursorItem) && existing.getAmount() < existing.getMaxStackSize()) {
+                    int maxAdd = existing.getMaxStackSize() - existing.getAmount();
+                    int addAmount = Math.min(totalAmount, maxAdd);
+                    if (addAmount > 0) {
+                        existing.setAmount(existing.getAmount() + addAmount);
+                        totalAmount -= addAmount;
+                    }
+                }
+            }
+            // Add remaining items to new slots if available
+            while (totalAmount > 0 && collectedItems.size() < availableSlots.size()) {
+                ItemStack newItem = cursorItem.clone();
+                int amount = Math.min(totalAmount, newItem.getMaxStackSize());
+                newItem.setAmount(amount);
+                collectedItems.add(newItem);
+                totalAmount -= amount;
+            }
+        } else {
+            // Add items to new slots without stacking
+            for (int i = 0; i < slotsToFill && totalAmount > 0; i++) {
+                if (collectedItems.size() >= availableSlots.size()) {
+                    noSpace = true;
+                    break;
+                }
+                ItemStack newItem = cursorItem.clone();
+                int amount = Math.min(amountPerSlot + (remainder > 0 ? 1 : 0), newItem.getMaxStackSize());
+                newItem.setAmount(amount);
+                collectedItems.add(newItem);
+                totalAmount -= amount;
+                if (remainder > 0) remainder--;
+            }
+        }
+
+        if (noSpace || totalAmount == cursorItem.getAmount()) {
+            event.setCancelled(true);
+            FileConfiguration messagesConfig = plugin.getMessagesConfig();
+            String message = messagesConfig.getString("no-empty-slots", "&cNo empty slots available in the item GUI!");
+            MessageUtils.sendFormattedMessage(player, message);
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Drag cancelled due to no available slots by " + player.getName());
+            return;
+        }
+
+        // Sort items
+        ItemValueCalculator calculator = plugin.getItemValueCalculator();
+        if (sortByValue) {
+            collectedItems.sort((a, b) -> {
+                double valueA = calculator.calculateItemValue(a);
+                double valueB = calculator.calculateItemValue(b);
+                return Double.compare(valueB, valueA); // Highest to lowest
+            });
+        } else {
+            collectedItems.sort(Comparator.comparing(item -> item.getType().name()));
+        }
+
+        // Clear available slots
+        for (int slot : availableSlots) {
+            topInventory.setItem(slot, null);
+        }
+
+        // Place items in available slots
+        int slotIndex = 0;
+        for (ItemStack item : collectedItems) {
+            if (slotIndex >= availableSlots.size()) {
+                debugManager.logWarning("[DEBUG - AddItemsGUI] Not enough available slots to place all items for " + player.getName());
+                returnItemToPlayer(player, item);
+                continue;
+            }
+            int slot = availableSlots.get(slotIndex);
+            topInventory.setItem(slot, item.clone());
+            slotIndex++;
+        }
+
+        // Update cursor
+        if (totalAmount > 0) {
+            cursorItem.setAmount(totalAmount);
+            event.setCursor(cursorItem);
+        } else {
+            event.setCursor(null);
+        }
+
+        // Update session
+        BountyCreationSession session = BountyCreationSession.getOrCreateSession(player);
+        session.setItemRewards(collectedItems);
+
+        // Schedule Confirm button update and inventory sync
+        Bukkit.getScheduler().runTask(plugin, () -> {
+            updateConfirmButton(topInventory);
+            player.updateInventory();
+        });
+        debugManager.bufferDebug("[DEBUG - AddItemsGUI] Drag completed for " + player.getName() + ", placed items in slots " + validDragSlots);
+    }
+
+// file: java/tony26/bountiesPlus/GUIs/AddItemsGUI.java
+
+    /**
+     * Handles inventory close events for the AddItemsGUI
+     * // note: Cleans up the GUI instance when the player closes the inventory, with checks for premature closure
+     */
+    @EventHandler
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player)) return;
+        Player closingPlayer = (Player) event.getPlayer();
+        if (!closingPlayer.equals(this.player)) return;
+        if (!inventory.getViewers().contains(closingPlayer)) return;
+
+        // Verify the inventory title matches
+        String expectedTitle = ChatColor.translateAlternateColorCodes('&', plugin.getAddItemsGUIConfig().getString(
+                (BountyCreationSession.getSession(player) != null && BountyCreationSession.getSession(player).hasItemRewards()) ?
+                        "edit-title" : "gui-title", "          &4&l⚔ &4&l&nAdd Items&4&l &4&l⚔"));
+        if (!event.getView().getTitle().equals(expectedTitle)) {
+            plugin.getDebugManager().bufferDebug("[DEBUG - AddItemsGUI] Ignored close by " + closingPlayer.getName() + ": title mismatch, expected '" + expectedTitle + "', got '" + event.getView().getTitle() + "'");
+            return;
+        }
+
+        DebugManager debugManager = plugin.getDebugManager();
+        long closeTime = System.currentTimeMillis();
+        debugManager.logDebug("[DEBUG - AddItemsGUI] Inventory closed by " + closingPlayer.getName() + ", title: '" + event.getView().getTitle() + "', isTransitioningFromCreateGUI: " + isTransitioningFromCreateGUI + ", time since open: " + (closeTime - openTime) + "ms");
+
+        // Skip cleanup if within 100ms of opening or transitioning
+        if (isTransitioningFromCreateGUI || (closeTime - openTime < 100)) {
+            debugManager.logDebug("[DEBUG - AddItemsGUI] Skipping close processing for " + closingPlayer.getName() + ": transitioning or premature close");
+            return;
+        }
+
+        // Clear non-protected slots without returning items
+        List<Integer> availableSlots = plugin.getAddItemsGUIConfig().getIntegerList("content-area.available-slots");
+        for (int slot : availableSlots) {
+            if (!protectedSlots.contains(slot)) {
+                ItemStack item = inventory.getItem(slot);
+                if (item != null && item.getType() != Material.AIR) {
+                    inventory.setItem(slot, null); // Clear the slot
+                    debugManager.bufferDebug("[DEBUG - AddItemsGUI] Cleared item " + item.getType().name() + " x" + item.getAmount() + " from slot " + slot + " for " + closingPlayer.getName() + " on close (not returned)");
+                }
+            }
+        }
+
+        // Send discard message
+        FileConfiguration messagesConfig = plugin.getMessagesConfig();
+        String message = messagesConfig.getString("changes-discarded", "&eChanges discarded. Use Confirm to save item changes.");
+        MessageUtils.sendFormattedMessage(closingPlayer, message);
+
+        // Perform cleanup
+        cleanup(closingPlayer);
+        debugManager.logDebug("[DEBUG - AddItemsGUI] Completed cleanup for " + closingPlayer.getName());
+
+        // Return to CreateGUI
+        BountyCreationSession session = BountyCreationSession.getOrCreateSession(closingPlayer);
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            session.returnToCreateGUI();
+        }, 3L);
+    }
+
+// file: java/tony26/bountiesPlus/GUIs/AddItemsGUI.java
+
+    /**
+     * Handles the Cancel button click in the AddItemsGUI
+     * // note: Discards unsaved changes, preserves session items, and returns to CreateGUI
+     */
+    private void handleCancelButton(Player player, Inventory inventory) {
+        DebugManager debugManager = plugin.getDebugManager();
+        FileConfiguration messagesConfig = plugin.getMessagesConfig();
+
+        // Clear non-protected slots without returning items
+        List<Integer> availableSlots = plugin.getAddItemsGUIConfig().getIntegerList("content-area.available-slots");
+        for (int slot : availableSlots) {
+            if (!protectedSlots.contains(slot)) {
+                ItemStack item = inventory.getItem(slot);
+                if (item != null && item.getType() != Material.AIR) {
+                    inventory.setItem(slot, null); // Clear the slot
+                    debugManager.bufferDebug("[DEBUG - AddItemsGUI] Cleared item " + item.getType().name() + " x" + item.getAmount() + " from slot " + slot + " for " + player.getName() + " on cancel (not returned)");
+                }
+            }
+        }
+
+        // Send cancellation message
+        String message = messagesConfig.getString("changes-discarded", "&eChanges discarded. Use Confirm to save item changes.");
+        MessageUtils.sendFormattedMessage(player, message);
+
+        // Clean up and return to CreateGUI
         cleanup(player);
         player.closeInventory();
         BountyCreationSession session = BountyCreationSession.getOrCreateSession(player);
-        session.returnToCreateGUI();
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            session.returnToCreateGUI();
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Cancelled item selection for " + player.getName() + ", returning to CreateGUI");
+        }, 3L);
     }
+
+// file: java/tony26/bountiesPlus/GUIs/AddItemsGUI.java
 
     /**
      * Handles the Confirm button click in the AddItemsGUI
@@ -783,19 +1344,20 @@ public class AddItemsGUI implements Listener {
      */
     private void handleConfirmButton(Player player, Inventory inventory) {
         BountyCreationSession session = BountyCreationSession.getOrCreateSession(player);
-        DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
+        DebugManager debugManager = plugin.getDebugManager();
+        FileConfiguration messagesConfig = plugin.getMessagesConfig();
 
         if (!validateTotalBountyValue(player, inventory, session)) {
-            debugManager.bufferDebug("[DEBUG - AddItemsGUI]Bounty value validation failed for " + player.getName());
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Bounty value validation failed for " + player.getName());
             return;
         }
 
         // Collect items from non-protected slots
         List<ItemStack> collectedItems = new ArrayList<>();
-        double totalValue = 0.0;
-        ItemValueCalculator calculator = BountiesPlus.getInstance().getItemValueCalculator();
+        ItemValueCalculator calculator = plugin.getItemValueCalculator();
+        List<Integer> availableSlots = plugin.getAddItemsGUIConfig().getIntegerList("content-area.available-slots");
 
-        for (int slot = 0; slot < inventory.getSize(); slot++) {
+        for (int slot : availableSlots) {
             if (!protectedSlots.contains(slot)) {
                 ItemStack item = inventory.getItem(slot);
                 if (item != null && item.getType() != Material.AIR) {
@@ -805,30 +1367,43 @@ public class AddItemsGUI implements Listener {
                         clonedItem.setAmount(clonedItem.getMaxStackSize());
                     }
                     collectedItems.add(clonedItem);
-                    totalValue += calculator.calculateItemValue(clonedItem);
                 }
             }
         }
 
-        // Update session and start it if new items were added
-        boolean hadNoItemsBefore = !session.hasItemRewards();
+        // Sort items
+        if (sortByValue) {
+            collectedItems.sort((a, b) -> {
+                double valueA = calculator.calculateItemValue(a);
+                double valueB = calculator.calculateItemValue(b);
+                return Double.compare(valueB, valueA); // Highest to lowest
+            });
+        } else {
+            collectedItems.sort(Comparator.comparing(item -> item.getType().name()));
+        }
+
+        // Check if items were removed compared to session
+        boolean hadItemsBefore = session.hasItemRewards();
+        boolean itemsRemoved = hadItemsBefore && collectedItems.size() < session.getItemRewards().size();
+
+        // Update session
         session.setItemRewards(collectedItems);
-        if (hadNoItemsBefore && !collectedItems.isEmpty()) {
+        if (!hadItemsBefore && !collectedItems.isEmpty()) {
             debugManager.logDebug("[DEBUG - AddItemsGUI] Started bounty creation session for " + player.getName() + " due to item addition");
         }
 
-        FileConfiguration messagesConfig = BountiesPlus.getInstance().getMessagesConfig();
-        String message = totalValue > 0 ?
-                messagesConfig.getString("items-added", "&aItems added to bounty! Total value: &e$%bountiesplus_item_value%") :
-                messagesConfig.getString("items-updated", "&aItems updated for bounty!");
-        PlaceholderContext context = PlaceholderContext.create().player(player).itemValue(totalValue);
-        player.sendMessage(Placeholders.apply(message, context));
+        // Send appropriate message
+        String messageKey = itemsRemoved ? "items-updated" : "item-selection-confirmed";
+        String message = messagesConfig.getString(messageKey, itemsRemoved ? "&aItems updated for bounty!" : "&aItems confirmed and saved to bounty session!");
+        MessageUtils.sendFormattedMessage(player, message);
 
         // Clean up and return to CreateGUI
         cleanup(player);
         player.closeInventory();
-        session.returnToCreateGUI();
-        debugManager.bufferDebug("[DEBUG - AddItemsGUI] Confirmed items for " + player.getName() + ", returning to CreateGUI");
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            session.returnToCreateGUI();
+            debugManager.bufferDebug("[DEBUG - AddItemsGUI] Confirmed items for " + player.getName() + ", returning to CreateGUI");
+        }, 3L);
     }
 
     /**

@@ -7,6 +7,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.inventory.ItemStack;
 import tony26.bountiesPlus.BountiesPlus;
 import tony26.bountiesPlus.BountyManager;
 import tony26.bountiesPlus.BountyTeamCheck;
@@ -29,7 +30,7 @@ public class PlayerDeathListener implements Listener {
 
     /**
      * Handles player death events
-     * // note: Processes bounty claims and updates stats for killer and victim
+     * // note: Processes bounty claims, drops skulls if required, and updates stats
      */
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
@@ -50,6 +51,9 @@ public class PlayerDeathListener implements Listener {
 
         if (!bountyManager.hasBounty(victimUUID)) return;
 
+        FileConfiguration config = plugin.getConfig();
+        boolean requireSkullTurnIn = config.getBoolean("bounties.require-skull-turn-in", true);
+        FileConfiguration messagesConfig = plugin.getMessagesConfig();
         Map<UUID, Integer> bounties = bountyManager.getBountiesOnTarget(victimUUID);
         double totalMoney = bounties.values().stream().mapToDouble(Integer::intValue).sum();
         double totalItemValue = bounties.keySet().stream()
@@ -63,36 +67,52 @@ public class PlayerDeathListener implements Listener {
         double boostedAmount = totalMoney * manualMoneyBoost;
         int xpReward = manualXpBoost > 1.0 ? (int) (totalMoney * manualXpBoost * 0.1) : 0;
 
-        CompletableFuture.runAsync(() -> {
-            try {
-                int currentClaimed = plugin.getMySQL().getClaimed(killerUUID).get();
-                int currentSurvived = plugin.getMySQL().getSurvived(victimUUID).get();
-                double currentMoneyEarned = plugin.getMySQL().getMoneyEarned(killerUUID).get();
-                int currentXPEarned = plugin.getMySQL().getXPEarned(killerUUID).get();
-                double currentTotalValueEarned = plugin.getMySQL().getTotalValueEarned(killerUUID).get();
-
-                plugin.getMySQL().setClaimed(killerUUID, currentClaimed + 1).get();
-                plugin.getMySQL().setSurvived(victimUUID, currentSurvived + 1).get();
-                plugin.getMySQL().setMoneyEarned(killerUUID, currentMoneyEarned + boostedAmount).get();
-                plugin.getMySQL().setXPEarned(killerUUID, currentXPEarned + xpReward).get();
-                plugin.getMySQL().setTotalValueEarned(killerUUID, currentTotalValueEarned + totalValueEarned).get();
-            } catch (Exception e) {
-                plugin.getLogger().warning("Failed to update stats for " + killerUUID + " or " + victimUUID + ": " + e.getMessage());
+        if (requireSkullTurnIn) {
+            // Drop a bounty skull
+            ItemStack skull = SkullUtils.createCustomBountySkull(victim, bounties, killer);
+            if (skull != null) {
+                victim.getWorld().dropItemNaturally(victim.getLocation(), skull);
+                sendSkullDropMessages(killer, victim, messagesConfig);
+            } else {
+                plugin.getLogger().warning("[DEBUG - PlayerDeathListener] Failed to create bounty skull for " + victim.getName());
             }
-        });
+        } else {
+            // Grant rewards immediately
+            if (BountiesPlus.getEconomy() != null && boostedAmount > 0) {
+                BountiesPlus.getEconomy().depositPlayer(killer, boostedAmount);
+            }
+            if (xpReward > 0) {
+                Bukkit.getScheduler().runTask(plugin, () -> killer.giveExp(xpReward));
+            }
+            processBountyClaims(killer, victim, bounties, messagesConfig);
+            bountyManager.clearBounties(victimUUID);
 
-        if (BountiesPlus.getEconomy() != null && boostedAmount > 0) {
-            BountiesPlus.getEconomy().depositPlayer(killer, boostedAmount);
+            // Update stats asynchronously
+            CompletableFuture.runAsync(() -> {
+                try {
+                    int currentClaimed = plugin.getMySQL().getClaimed(killerUUID).get();
+                    int currentSurvived = plugin.getMySQL().getSurvived(victimUUID).get();
+                    double currentMoneyEarned = plugin.getMySQL().getMoneyEarned(killerUUID).get();
+                    int currentXPEarned = plugin.getMySQL().getXPEarned(killerUUID).get();
+                    double currentTotalValueEarned = plugin.getMySQL().getTotalValueEarned(killerUUID).get();
+
+                    plugin.getMySQL().setClaimed(killerUUID, currentClaimed + 1).get();
+                    plugin.getMySQL().setSurvived(victimUUID, currentSurvived + 1).get();
+                    plugin.getMySQL().setMoneyEarned(killerUUID, currentMoneyEarned + boostedAmount).get();
+                    plugin.getMySQL().setXPEarned(killerUUID, currentXPEarned + xpReward).get();
+                    plugin.getMySQL().setTotalValueEarned(killerUUID, currentTotalValueEarned + totalValueEarned).get();
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Failed to update stats for " + killerUUID + " or " + victimUUID + ": " + e.getMessage());
+                }
+            });
+
+            // Send claim message without skull
+            String claimMessage = messagesConfig.getString("bounty-claimed-no-skull", "&a&lBounty Claimed!\n&7You claimed the bounty on &e%killed% &7for &e$%amount%!");
+            claimMessage = claimMessage.replace("%killed%", victim.getName()).replace("%amount%", String.format("%.2f", boostedAmount));
+            MessageUtils.sendFormattedMessage(killer, claimMessage);
         }
-        if (xpReward > 0) {
-            Bukkit.getScheduler().runTask(plugin, () -> killer.giveExp(xpReward));
-        }
 
-        FileConfiguration messagesConfig = plugin.getMessagesConfig();
-        processBountyClaims(killer, victim, bounties, messagesConfig);
-        sendSkullDropMessages(killer, victim, messagesConfig);
-
-        bountyManager.clearBounties(victimUUID);
+        playBountySound(killer);
     }
 
     private void sendSkullDropMessages(Player killer, Player killed, FileConfiguration messagesConfig) {
@@ -113,36 +133,17 @@ public class PlayerDeathListener implements Listener {
         killer.sendMessage(ChatColor.translateAlternateColorCodes('&', instructionMessage));
     }
 
+    /**
+     * Processes bounty claims for a player death
+     * // note: Sends claim messages to killer and broadcasts to server
+     */
     private void processBountyClaims(Player killer, Player killed, Map<UUID, Integer> bounties, FileConfiguration messagesConfig) {
         BountyManager bountyManager = plugin.getBountyManager();
-
-        // Get manual boost multipliers - ADD THESE LINES
+        double totalReward = bounties.values().stream().mapToDouble(Integer::intValue).sum();
         double manualMoneyBoost = bountyManager.getManualMoneyBoostMultiplier(killed.getUniqueId());
         double manualXpBoost = bountyManager.getManualXpBoostMultiplier(killed.getUniqueId());
+        double boostedAmount = totalReward * manualMoneyBoost;
 
-        double totalReward = 0.0;
-
-        for (Map.Entry<UUID, Integer> bountyEntry : bounties.entrySet()) {
-            UUID setterUUID = bountyEntry.getKey();
-            int bountyAmount = bountyEntry.getValue();
-
-            // Apply manual money boost - MODIFY THIS LINE
-            double boostedAmount = bountyAmount * manualMoneyBoost;
-            totalReward += boostedAmount;
-
-            // Handle XP rewards if you have them - ADD THESE LINES IF NEEDED
-            if (manualXpBoost > 1.0) {
-                int xpReward = (int) (bountyAmount * manualXpBoost * 0.1); // 10% of money as XP
-                killer.giveExp(xpReward);
-            }
-        }
-
-        // Give money rewards
-        if (BountiesPlus.getEconomy() != null && totalReward > 0) {
-            BountiesPlus.getEconomy().depositPlayer(killer, totalReward);
-        }
-
-        // Send boost notification if active - ADD THESE LINES
         if (manualMoneyBoost > 1.0 || manualXpBoost > 1.0) {
             String boostMessage = ChatColor.GREEN + "Boost Applied! ";
             if (manualMoneyBoost > 1.0) {
@@ -154,22 +155,16 @@ public class PlayerDeathListener implements Listener {
             killer.sendMessage(boostMessage);
         }
 
-        // Rest of your existing code for messages and clearing bounties...
-        bountyManager.clearBounties(killed.getUniqueId());
-
-        if (BountiesPlus.getEconomy() != null && totalReward > 0) {
-            BountiesPlus.getEconomy().depositPlayer(killer, totalReward);
-
+        if (totalReward > 0) {
             if (messagesConfig.getBoolean("bounty-claimed-message.killer.enabled", true)) {
                 String killerMessage = messagesConfig.getString("bounty-claimed-message.killer.message", "%prefix%&aYou claimed the bounty on &e%killed%&a and received &e$%amount%&a!");
-                killerMessage = killerMessage.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%killed%", killed.getName()).replace("%amount%", String.valueOf(totalReward));
+                killerMessage = killerMessage.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%killed%", killed.getName()).replace("%amount%", String.format("%.2f", boostedAmount));
                 killer.sendMessage(ChatColor.translateAlternateColorCodes('&', killerMessage));
             }
 
             if (messagesConfig.getBoolean("bounty-claimed-message.broadcast.enabled", true)) {
                 String broadcastMessage = messagesConfig.getString("bounty-claimed-message.broadcast.message", "%prefix%&e%killer%&a claimed the bounty on &e%killed%&a worth &e$%amount%&a!");
-                broadcastMessage = broadcastMessage.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%killer%", killer.getName()).replace("%killed%", killed.getName()).replace("%amount%", String.valueOf(totalReward));
-
+                broadcastMessage = broadcastMessage.replace("%prefix%", messagesConfig.getString("prefix", "")).replace("%killer%", killer.getName()).replace("%killed%", killed.getName()).replace("%amount%", String.format("%.2f", boostedAmount));
                 for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
                     onlinePlayer.sendMessage(ChatColor.translateAlternateColorCodes('&', broadcastMessage));
                 }

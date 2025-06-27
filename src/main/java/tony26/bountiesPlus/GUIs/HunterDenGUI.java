@@ -751,11 +751,12 @@ public class HunterDenGUI implements InventoryHolder, Listener {
     }
 
     /**
-     * Checks if player has enough valid bounty skulls with minimum value // note: Validates skull count and status (active or expired/claimed based on allow-expired-skulls setting)
+     * Checks if player has enough valid bounty skulls with minimum value
+     * // note: Validates skull count and status (active or expired/claimed based on allow-expired-skulls setting)
      */
     private boolean checkSkullRequirements(Player player, int requiredCount, double minValue) {
         FileConfiguration config = plugin.getConfig();
-        boolean allowExpiredSkulls = config.getBoolean("allow-expired-skulls", true);
+        boolean allowExpiredSkulls = config.getBoolean("bounties.allow-expired-skulls", true);
         int validSkullCount = 0;
 
         for (ItemStack item : player.getInventory().getContents()) {
@@ -778,11 +779,12 @@ public class HunterDenGUI implements InventoryHolder, Listener {
     }
 
     /**
-     * Removes required valid bounty skulls from player inventory // note: Deducts skulls meeting value and status requirements (active or expired/claimed based on allow-expired-skulls setting)
+     * Removes required valid bounty skulls from player inventory
+     * // note: Deducts skulls meeting value and status requirements (active or expired/claimed based on allow-expired-skulls setting)
      */
     private boolean removeSkullsFromInventory(Player player, int requiredCount, double minValue) {
         FileConfiguration config = plugin.getConfig();
-        boolean allowExpiredSkulls = config.getBoolean("allow-expired-skulls", true);
+        boolean allowExpiredSkulls = config.getBoolean("bounties.allow-expired-skulls", true);
         int remainingToRemove = requiredCount;
 
         for (ItemStack item : player.getInventory().getContents()) {

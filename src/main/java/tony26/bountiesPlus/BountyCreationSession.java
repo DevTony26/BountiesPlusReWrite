@@ -14,9 +14,8 @@ import tony26.bountiesPlus.utils.TimeFormatter;
 import java.util.*;
 
 /**
- /**
  * Manages the creation of a bounty for a player
- * // note: Tracks money, experience, items, time, and target for a player's bounty creation process
+ * // note: Tracks money, experience, items, time, target, and anonymity for a player's bounty creation process
  */
 public class BountyCreationSession {
     private static final Map<UUID, BountyCreationSession> sessions = new HashMap<>();
@@ -34,16 +33,7 @@ public class BountyCreationSession {
     private final long creationTime = System.currentTimeMillis();
     private String lastChatInput = null;
     private long lastChatTimestamp = 0;
-
-    public enum InputType {
-        MONEY,
-        EXPERIENCE,
-        TIME,
-        PLAYER_NAME,
-        CANCEL_CONFIRMATION,
-        ANONYMOUS_CONFIRMATION,
-        NO_EXPERIENCE_TITLE
-    }
+    private boolean isAnonymous = false; // Added for anonymous bounty support
 
     /**
      * Constructs a new bounty creation session for a player
@@ -53,6 +43,39 @@ public class BountyCreationSession {
         this.player = player;
         this.lastChatInput = null;
         this.lastChatTimestamp = 0;
+        this.isAnonymous = false;
+    }
+
+    /**
+     * Checks if the bounty is anonymous
+     * // note: Returns true if the bounty is set to be anonymous
+     */
+    public boolean isAnonymous() {
+        return isAnonymous;
+    }
+
+    /**
+     * Sets the anonymity state of the bounty
+     * // note: Updates whether the bounty should hide the setter’s identity
+     */
+    public void setAnonymous(boolean isAnonymous) {
+        this.isAnonymous = isAnonymous;
+    }
+
+    /**
+     * Enum for tracking input types during bounty creation
+     * // note: Defines states for chat input prompts and title displays
+     */
+    public enum InputType {
+        MONEY,
+        EXPERIENCE,
+        TIME,
+        PLAYER_NAME,
+        CANCEL_CONFIRMATION,
+        ANONYMOUS_CONFIRMATION,
+        NO_EXPERIENCE_TITLE,
+        NO_MONEY_TITLE,
+        CLOSE_WITH_SESSION_TITLE
     }
 
     /**
@@ -270,6 +293,7 @@ public class BountyCreationSession {
     public boolean isValid() {
         BountiesPlus plugin = BountiesPlus.getInstance();
         FileConfiguration config = plugin.getConfig();
+        FileConfiguration messages = plugin.getMessagesConfig();
 
         if (!hasTarget()) {
             return false;

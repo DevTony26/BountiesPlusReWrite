@@ -12,6 +12,10 @@ import java.util.stream.Collectors;
 
 public class BountyTabCompleter implements TabCompleter {
 
+    /**
+     * Provides tab completion for the /bounty command
+     * // note: Suggests subcommands, player names, and other parameters based on context
+     */
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         List<String> completions = new ArrayList<>();
@@ -45,8 +49,11 @@ public class BountyTabCompleter implements TabCompleter {
             if (sender.hasPermission("bountiesplus.admin.frenzy")) {
                 completions.add("frenzy");
             }
+            if (sender.hasPermission("bountiesplus.notify.toggle")) {
+                completions.add("notify");
+            }
         } else if (args.length == 2) {
-            // Player names for set, check, boost commands
+            // Player names for set, check, boost, give commands
             if (args[0].equalsIgnoreCase("set") || args[0].equalsIgnoreCase("check") ||
                     args[0].equalsIgnoreCase("boost") || args[0].equalsIgnoreCase("give")) {
                 for (Player player : Bukkit.getOnlinePlayers()) {

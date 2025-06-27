@@ -1,6 +1,7 @@
 #####################################################################################
-# MySQL Configuration
+# Debug x MySQL Configuration
 #####################################################################################
+debug-enabled: true
 mysql:
   use-mysql: false
   host: localhost
@@ -17,60 +18,48 @@ custom-placeholders:
   bounty-status-no-expiration: "&f&K||| &4Death Contract &f&K|||"
   anonymous-sponsor: "&k|||||||"
 #####################################################################################
-# Debug / General Bounty Settings
+# General Bounty Settings
 #####################################################################################
-debug-enabled: true
-restrict-same-ip-bounties: false
-require-skull-turn-in: true
-allow-offline-players: true
-use-xp-levels: false
-money:
-  allow-zero-dollar-bounties: true
-  min-bounty-amount: 100
-  max-bounty-amount: 1000000
-time:
-  allow-time: true
-  require-time: false
-  default-bounty-duration: 1440
-  min-bounty-time: 3600
-  max-bounty-time: 86400
-shop:
-  enable-shop: true
-  allow-expired-skulls: true
-  use-shop-gui-plus: false
-#####################################################################################
-# Anonymous Bounties Settings
-#####################################################################################
-anonymous-bounties:
-  enabled: true
-  base-percentage: 15.0
-  minimum-cost: 50.0
-  maximum-cost: 5000.0
-#####################################################################################
-# Tax Settings
-#####################################################################################
-bounty-place-tax-rate: 10.0
-bounty-cancel-tax-rate: 10.0
-tax-total-value: false
-#####################################################################################
-# Tablist Settings
-#####################################################################################
-tablist-modification:
-  enabled: true
-  format: "&4[ &a%bountiesplus_total_pool% &a&o(&a&o+ %bountiesplus_pool_increase_percent% %&a&o) &4] %player_name%"
-  move-boosted-to-top: true
-  boosted-format: "&6[Boosted %bountiesplus_boost%x] &a%bountiesplus_total_pool% &6] %player_name%"
-#####################################################################################
-# Blacklist Items from being added to a bounty (Supports NBT tags for Custom Items
-#####################################################################################
-blacklisted-items:
-  - "DIAMOND_SWORD"
-  - "NETHERITE_AXE"
-blacklisted-nbt-items:
-  - nbt_key: "item_type"
-    nbt_value: "tracker"
-  - nbt_key: "item_type"
-    nbt_value: "uav"
+bounties:
+  restrict-same-ip-bounties: false
+  require-skull-turn-in: true
+  allow-offline-players: true
+  use-xp-levels: false
+  tax:
+    bounty-place-tax-rate: 10.0
+    bounty-cancel-tax-rate: 10.0
+    tax-total-value: false
+  money:
+    allow-zero-dollar-bounties: true
+    min-bounty-amount: 100
+    max-bounty-amount: 1000000
+  time:
+    allow-time: true
+    require-time: false
+    default-bounty-duration: 1440
+    min-bounty-time: 3600
+    max-bounty-time: 86400
+  anonymous-bounties:
+    enabled: true
+    base-percentage: 15.0
+    minimum-cost: 50.0
+    maximum-cost: 5000.0
+  blacklisted-items:
+    - "DIAMOND_SWORD"
+    - "NETHERITE_AXE"
+  blacklisted-nbt-items:
+    - nbt_key: "item_type"
+      nbt_value: "tracker"
+    - nbt_key: "item_type"
+      nbt_value: "uav"
+  big-bounty-broadcast:
+    enabled: true
+    threshold: 1000
+    message:
+      - "&7&m----------------------------------------"
+      - "&c&lMassive Bounty Placed!"
+      - "&7A bounty of &e%bountiesplus_amount%&7 was placed on &e%bountiesplus_target%&7 by &e%bountiesplus_sponsor%&7!"
+      - "&7&m----------------------------------------"
 #####################################################################################
 # Customize Skull that drops when a player with bounty is killed
 #####################################################################################
@@ -87,6 +76,14 @@ bounty-skull:
     - "&eRight-click to turn in for rewards!"
     - "&cWarning: Head will expire in 24 hours"
   enchantment-glow: true
+#####################################################################################
+# Tablist Settings
+#####################################################################################
+tablist-modification:
+  enabled: true
+  format: "&4[ &a%bountiesplus_total_pool% &a&o(&a&o+ %bountiesplus_pool_increase_percent% %&a&o) &4] %player_name%"
+  move-boosted-to-top: true
+  boosted-format: "&6[Boosted %bountiesplus_boost%x] &a%bountiesplus_total_pool% &6] %player_name%"
 #####################################################################################
 # Boosted Bounties Settings
 #####################################################################################

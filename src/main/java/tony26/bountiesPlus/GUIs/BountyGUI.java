@@ -25,6 +25,7 @@ import tony26.bountiesPlus.wrappers.VersionWrapperFactory;
 
 import java.io.File;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
@@ -201,26 +202,32 @@ public class BountyGUI implements Listener {
 
         loadBountySkullSlots(config, debugManager != null ? debugManager : new DebugManager(pluginInstance));
         UUID playerUUID = player.getUniqueId();
-        playerShowOnlyOnline.putIfAbsent(playerUUID, false);
-        playerFilterHighToLow.putIfAbsent(playerUUID, true);
+
+        // Set player-specific filter states directly from parameters
         playerShowOnlyOnline.put(playerUUID, showOnlyOnline);
         playerFilterHighToLow.put(playerUUID, filterHighToLow);
-        boolean currentShowOnlyOnline = playerShowOnlyOnline.get(playerUUID);
-        boolean currentFilterHighToLow = playerFilterHighToLow.get(playerUUID);
+
         GUI_TITLE = ChatColor.translateAlternateColorCodes('&', config.getString("gui-title", "&dBounty Hunter"));
         int guiSize = config.getInt("gui-size", 54);
         Inventory bountyGui = Bukkit.createInventory(null, guiSize, GUI_TITLE);
         currentPage = page;
-        List<Bounty> filteredBounties = getFilteredBounties(pluginInstance.getBountyManager(), currentShowOnlyOnline, currentFilterHighToLow);
+
+        List<Bounty> filteredBounties = getFilteredBounties(pluginInstance.getBountyManager(), showOnlyOnline, filterHighToLow);
         int totalPages = Math.max(1, (int) Math.ceil((double) filteredBounties.size() / bountySkullSlots.length));
         currentPage = Math.max(0, Math.min(currentPage, totalPages - 1));
+
         ItemStack borderPane = createBorderItem(config);
         fillBorder(bountyGui, borderPane, config);
+
         boolean enableShop = pluginInstance.getConfig().getBoolean("enable-shop", true);
         placeCustomItems(bountyGui, config);
-        placeConfiguredButtons(bountyGui, config, enableShop, currentFilterHighToLow, currentShowOnlyOnline, currentPage, totalPages, pluginInstance, player);
+        placeConfiguredButtons(bountyGui, config, enableShop, filterHighToLow, showOnlyOnline, currentPage, totalPages, pluginInstance, player);
         placeBountyItems(bountyGui, pluginInstance, config);
+
         player.openInventory(bountyGui);
+        debugManager.logDebug("[DEBUG - BountyGUI] Opened GUI for " + player.getName() + " with filter: " +
+                (showOnlyOnline ? "Online Only" : "All Bounties") + " - " +
+                (filterHighToLow ? "High to Low" : "Low to High"));
     }
 
     private static Map<String, String> getBoostPlaceholders(BountiesPlus plugin) {
@@ -603,7 +610,7 @@ public class BountyGUI implements Listener {
             item = VersionUtils.getXMaterialItemStack("FIREWORK_STAR");
         }
 
-        boolean shouldGlow = showOnlyOnline && filterHighToLow;
+        // Only apply glow if explicitly configured, not based on filter state
         String filterStatus;
         String filterDetails;
         String colorConfigPath;
@@ -648,7 +655,7 @@ public class BountyGUI implements Listener {
         if (meta != null) {
             meta.setDisplayName(processedName);
             meta.setLore(processedLore);
-            if (shouldGlow || config.getBoolean(configPath + ".enchantment-glow", false)) {
+            if (config.getBoolean(configPath + ".enchantment-glow", false)) {
                 meta.addEnchant(Enchantment.DURABILITY, 1, true);
                 meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
             }
@@ -1366,38 +1373,34 @@ public class BountyGUI implements Listener {
         }, 20L, 20L); // Update every second (20 ticks)
     }
 
+    /**
+     * Processes player skull turn-ins for bounty rewards
+     * // note: Validates and processes bounty skulls, grants rewards, and updates stats
+     */
     private void handleSkullTurnIn(Player player) {
         Economy economy = plugin.getEconomy();
         BountyManager bountyManager = plugin.getBountyManager();
         double totalReward = 0.0;
         int skullsProcessed = 0;
         List<ItemStack> skullsToRemove = new ArrayList<>();
+        UUID killerUUID = player.getUniqueId();
 
         for (ItemStack item : player.getInventory().getContents()) {
             if (item == null || !VersionUtils.isPlayerHead(item)) continue;
-            if (!HunterDenGUI.isBountySkull(item)) continue;
+            if (!SkullUtils.isValidBountySkull(item)) continue;
             double bountyAmount = HunterDenGUI.extractBountyValueFromSkull(item);
             if (bountyAmount <= 0) continue;
             totalReward += bountyAmount;
             skullsProcessed++;
             skullsToRemove.add(item);
-            SkullMeta skullMeta = (SkullMeta) item.getItemMeta();
-            if (skullMeta != null && skullMeta.getLore() != null) {
-                for (String loreLine : skullMeta.getLore()) {
-                    if (loreLine.contains("Target:")) {
-                        String targetName = ChatColor.stripColor(loreLine).replace("Target: ", "").trim();
-                        Player targetPlayer = Bukkit.getPlayer(targetName);
-                        if (targetPlayer != null) {
-                            bountyManager.clearBounties(targetPlayer.getUniqueId());
-                        }
-                        break;
-                    }
-                }
+            UUID victimUUID = SkullUtils.getKilledPlayerUUID(item);
+            if (victimUUID != null) {
+                bountyManager.clearBounties(victimUUID);
             }
         }
 
         if (skullsProcessed == 0) {
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', "&cNo valid bounty skulls found to turn in!"));
+            MessageUtils.sendFormattedMessage(player, "invalid-skull");
             return;
         }
 
@@ -1405,39 +1408,45 @@ public class BountyGUI implements Listener {
             player.getInventory().remove(skull);
         }
 
-        if (economy != null) {
+        if (economy != null && totalReward > 0) {
             economy.depositPlayer(player, totalReward);
         }
 
-        FileConfiguration statsConfig = plugin.getStatsConfig();
-        String playerUUID = player.getUniqueId().toString();
-        int currentClaimed = statsConfig.getInt("players." + playerUUID + ".claimed", 0);
-        double currentEarned = statsConfig.getDouble("players." + playerUUID + ".money_earned", 0.0);
-        statsConfig.set("players." + playerUUID + ".claimed", currentClaimed + skullsProcessed);
-        statsConfig.set("players." + playerUUID + ".money_earned", currentEarned + totalReward);
-        plugin.saveEverything();
+        // Update stats asynchronously
+        double finalTotalReward = totalReward;
+        int finalSkullsProcessed = skullsProcessed;
+        CompletableFuture.runAsync(() -> {
+            try {
+                int currentClaimed = plugin.getMySQL().getClaimed(killerUUID).get();
+                double currentMoneyEarned = plugin.getMySQL().getMoneyEarned(killerUUID).get();
+                double currentTotalValueEarned = plugin.getMySQL().getTotalValueEarned(killerUUID).get();
 
-        String successMessage = ChatColor.translateAlternateColorCodes('&',
-                "&a&lBounty Skulls Turned In!\n" +
-                        "&7Skulls processed: &e" + skullsProcessed + "\n" +
-                        "&7Total reward: &e$" + String.format("%.2f", totalReward));
-        player.sendMessage(successMessage);
+                plugin.getMySQL().setClaimed(killerUUID, currentClaimed + finalSkullsProcessed).get();
+                plugin.getMySQL().setMoneyEarned(killerUUID, currentMoneyEarned + finalTotalReward).get();
+                plugin.getMySQL().setTotalValueEarned(killerUUID, currentTotalValueEarned + finalTotalReward).get();
+            } catch (Exception e) {
+                plugin.getLogger().warning("Failed to update stats for " + killerUUID + ": " + e.getMessage());
+            }
+        });
+
+        FileConfiguration messagesConfig = plugin.getMessagesConfig();
+        String successMessage = messagesConfig.getString("bounty-claimed-message.killer.message", "&a&lBounty Claimed\n&7Skulls processed: &e%skulls%\n&7Total reward: &e$%amount%");
+        successMessage = successMessage.replace("%skulls%", String.valueOf(skullsProcessed)).replace("%amount%", String.format("%.2f", totalReward));
+        MessageUtils.sendFormattedMessage(player, successMessage);
 
         try {
             String successSound = VersionWrapperFactory.getWrapper().getSuccessSound();
             player.playSound(player.getLocation(), Sound.valueOf(successSound), 1.0f, 1.0f);
         } catch (Exception e) {
-            try {
-                player.playSound(player.getLocation(), Sound.valueOf("ENTITY_PLAYER_LEVELUP"), 1.0f, 1.0f);
-            } catch (Exception ignored) {
-            }
+            player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.0f);
         }
+
+        plugin.saveEverything();
     }
 
-// file: java/tony26/bountiesPlus/GUIs/BountyGUI.java (partial)
     /**
      * Handles button click events for the Bounty GUI
-     * // note: Processes specific button interactions based on button ID
+     * // note: Processes specific button interactions based on button ID, toggles filter for online/all bounties on left-click
      */
     private void handleButtonClick(Player player, String buttonId, ClickType clickType) {
         DebugManager debugManager = plugin.getDebugManager();
@@ -1446,28 +1455,34 @@ public class BountyGUI implements Listener {
         switch (buttonId) {
             case FILTER_BUTTON_ID:
                 // Ensure filter states are initialized
-                playerShowOnlyOnline.putIfAbsent(playerUUID, false);
-                playerFilterHighToLow.putIfAbsent(playerUUID, true);
+                playerShowOnlyOnline.putIfAbsent(playerUUID, false); // Default to All Bounties
+                playerFilterHighToLow.putIfAbsent(playerUUID, false); // Default to Low to High
+
+                // Get current states
                 boolean currentShowOnlyOnline = playerShowOnlyOnline.get(playerUUID);
                 boolean currentFilterHighToLow = playerFilterHighToLow.get(playerUUID);
 
                 if (clickType == ClickType.LEFT) {
-                    // Toggle showOnlyOnline (All Bounties <-> Online Only), preserve filterHighToLow
-                    playerShowOnlyOnline.put(playerUUID, !currentShowOnlyOnline);
-                    debugManager.logDebug("[DEBUG - BountyGUI] Left clicked by " + player.getName() + " - Status updated to: \"" +
-                            (playerShowOnlyOnline.get(playerUUID) ? "Online Only" : "All Bounties") + " - " +
-                            (playerFilterHighToLow.get(playerUUID) ? "High to Low" : "Low to High") + "\"");
+                    // Toggle only the showOnlyOnline state, preserve sort order
+                    boolean newShowOnlyOnline = !currentShowOnlyOnline;
+                    playerShowOnlyOnline.put(playerUUID, newShowOnlyOnline);
+                    debugManager.logDebug("[DEBUG - BountyGUI] Left clicked filter by " + player.getName() + " - Filter toggled to: \"" +
+                            (newShowOnlyOnline ? "Online Only" : "All Bounties") + " - " +
+                            (currentFilterHighToLow ? "High to Low" : "Low to High") + "\"");
+                    // Refresh GUI with updated filter state
+                    currentPage = 0;
+                    openBountyGUI(player, currentFilterHighToLow, newShowOnlyOnline, currentPage);
                 } else if (clickType == ClickType.RIGHT) {
-                    // Toggle filterHighToLow (High to Low <-> Low to High), preserve showOnlyOnline
-                    playerFilterHighToLow.put(playerUUID, !currentFilterHighToLow);
-                    debugManager.logDebug("[DEBUG - BountyGUI] Right clicked by " + player.getName() + " - Status updated to: \"" +
-                            (playerShowOnlyOnline.get(playerUUID) ? "Online Only" : "All Bounties") + " - " +
-                            (playerFilterHighToLow.get(playerUUID) ? "High to Low" : "Low to High") + "\"");
+                    // Toggle only the sort order, preserve online/all filter
+                    boolean newFilterHighToLow = !currentFilterHighToLow;
+                    playerFilterHighToLow.put(playerUUID, newFilterHighToLow);
+                    debugManager.logDebug("[DEBUG - BountyGUI] Right clicked filter by " + player.getName() + " - Sort toggled to: \"" +
+                            (currentShowOnlyOnline ? "Online Only" : "All Bounties") + " - " +
+                            (newFilterHighToLow ? "High to Low" : "Low to High") + "\"");
+                    // Refresh GUI with updated sort order
+                    currentPage = 0;
+                    openBountyGUI(player, newFilterHighToLow, currentShowOnlyOnline, currentPage);
                 }
-
-                // Reset to page 0 and open the GUI with updated filter states
-                currentPage = 0;
-                openBountyGUI(player, playerFilterHighToLow.get(playerUUID), playerShowOnlyOnline.get(playerUUID), currentPage);
                 break;
 
             case "SEARCH_BUTTON":
@@ -1476,7 +1491,6 @@ public class BountyGUI implements Listener {
                         MessageUtils.sendFormattedMessage(player, "no-permission");
                         return;
                     }
-                    // Close the GUI, send search prompt, and add player to awaiting search input
                     player.closeInventory();
                     MessageUtils.sendFormattedMessage(player, "search-prompt");
                     addAwaitingSearchInput(playerUUID);
@@ -1506,7 +1520,7 @@ public class BountyGUI implements Listener {
             case PREVIOUS_PAGE_ID:
                 if (currentPage > 0) {
                     currentPage--;
-                    openBountyGUI(player, playerFilterHighToLow.getOrDefault(playerUUID, true),
+                    openBountyGUI(player, playerFilterHighToLow.getOrDefault(playerUUID, false),
                             playerShowOnlyOnline.getOrDefault(playerUUID, false), currentPage);
                 }
                 break;
@@ -1514,11 +1528,11 @@ public class BountyGUI implements Listener {
             case NEXT_PAGE_ID:
                 List<Bounty> filteredBounties = getFilteredBounties(plugin.getBountyManager(),
                         playerShowOnlyOnline.getOrDefault(playerUUID, false),
-                        playerFilterHighToLow.getOrDefault(playerUUID, true));
+                        playerFilterHighToLow.getOrDefault(playerUUID, false));
                 int totalPages = Math.max(1, (int) Math.ceil((double) filteredBounties.size() / ITEMS_PER_PAGE));
                 if (currentPage < totalPages - 1) {
                     currentPage++;
-                    openBountyGUI(player, playerFilterHighToLow.getOrDefault(playerUUID, true),
+                    openBountyGUI(player, playerFilterHighToLow.getOrDefault(playerUUID, false),
                             playerShowOnlyOnline.getOrDefault(playerUUID, false), currentPage);
                 }
                 break;
@@ -1530,7 +1544,7 @@ public class BountyGUI implements Listener {
             case BACK_TO_MAIN_ID:
                 player.closeInventory();
                 Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                    openBountyGUI(player, playerFilterHighToLow.getOrDefault(playerUUID, true),
+                    openBountyGUI(player, playerFilterHighToLow.getOrDefault(playerUUID, false),
                             playerShowOnlyOnline.getOrDefault(playerUUID, false), currentPage);
                 }, 1L);
                 break;

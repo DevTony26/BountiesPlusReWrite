@@ -22,12 +22,13 @@ public class TaxManager {
     }
 
     /**
-     * Calculates the tax amount for a bounty // note: Computes tax based on money and optional item value per config settings
+     * Calculates the tax amount for a bounty
+     * // note: Computes tax based on money and optional item value per config settings
      */
     public double calculateTax(double money, List<ItemStack> items) {
         FileConfiguration config = plugin.getConfig();
-        double taxRate = config.getDouble("bounty-place-tax-rate", 0.0) / 100.0;
-        boolean taxTotalValue = config.getBoolean("tax-total-value", false);
+        double taxRate = config.getDouble("bounties.tax.bounty-place-tax-rate", 0.0) / 100.0;
+        boolean taxTotalValue = config.getBoolean("bounties.tax.tax-total-value", false);
         double itemValue = 0.0;
 
         if (taxTotalValue && items != null && !items.isEmpty()) {
@@ -82,11 +83,12 @@ public class TaxManager {
     }
 
     /**
-     * Sends tax-related messages to the player // note: Sends success and tax notification messages with placeholders
+     * Sends tax-related messages to the player
+     * // note: Sends success and tax notification messages with placeholders
      */
     public void sendTaxMessages(Player player, UUID targetUUID, double money, double taxAmount) {
         FileConfiguration messagesConfig = plugin.getMessagesConfig();
-        double taxRate = plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0);
+        double taxRate = plugin.getConfig().getDouble("bounties.tax.bounty-place-tax-rate", 0.0);
 
         // Send success message
         String successMessage = messagesConfig.getString("bounty-set-success", "&aYou placed a bounty of &e%amount%&a on &e%target%&a! Tax of &e%tax%&a was deducted.");

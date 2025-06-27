@@ -56,20 +56,22 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     private EventManager eventManager;
     private ShopGuiPlusIntegration shopGuiPlusIntegration;
     private BountyStats bountyStats;
-    private static final ConfigWrapper CONFIG = new ConfigWrapper("config.yml");
-    private static final ConfigWrapper MESSAGES_CONFIG = new ConfigWrapper("messages.yml");
-    private static final ConfigWrapper ITEM_VALUE_CONFIG = new ConfigWrapper("ItemValue.yml");
-    private static final ConfigWrapper ITEMS_CONFIG = new ConfigWrapper("items.yml");
-    private static final ConfigWrapper BOUNTY_TEAM_CHECK_CONFIG = new ConfigWrapper("BountyTeamChecks.yml");
-    private static final ConfigWrapper STAT_STORAGE_CONFIG = new ConfigWrapper("Storage/StatStorage.yml");
-    private static final ConfigWrapper BOUNTY_STORAGE_CONFIG = new ConfigWrapper("Storage/BountyStorage.yml");
-    private static final ConfigWrapper BOUNTY_GUI_CONFIG = new ConfigWrapper("GUIs/BountyGUI.yml");
-    private static final ConfigWrapper TOP_GUI_CONFIG = new ConfigWrapper("GUIs/TopGUI.yml");
-    private static final ConfigWrapper CREATE_GUI_CONFIG = new ConfigWrapper("GUIs/CreateGUI.yml");
-    private static final ConfigWrapper HUNTER_DEN_CONFIG = new ConfigWrapper("GUIs/HuntersDen.yml");
-    private static final ConfigWrapper PREVIEW_GUI_CONFIG = new ConfigWrapper("GUIs/PreviewGUI.yml");
-    private static final ConfigWrapper ADD_ITEMS_CONFIG = new ConfigWrapper("GUIs/AddItemsGUI.yml");
-    private static final ConfigWrapper BOUNTY_CANCEL_CONFIG = new ConfigWrapper("GUIs/BountyCancelGUI.yml");
+    private final ConfigWrapper CONFIG;
+    private final ConfigWrapper MESSAGES_CONFIG;
+    private final ConfigWrapper ITEM_VALUE_CONFIG;
+    private final ConfigWrapper ITEMS_CONFIG;
+    private final ConfigWrapper BOUNTY_TEAM_CHECK_CONFIG;
+    private final ConfigWrapper STAT_STORAGE_CONFIG;
+    private final ConfigWrapper BOUNTY_STORAGE_CONFIG;
+    private final ConfigWrapper BOUNTY_GUI_CONFIG;
+    private final ConfigWrapper TOP_GUI_CONFIG;
+    private final ConfigWrapper CREATE_GUI_CONFIG;
+    private final ConfigWrapper HUNTER_DEN_CONFIG;
+    private final ConfigWrapper PREVIEW_GUI_CONFIG;
+    private final ConfigWrapper ADD_ITEMS_CONFIG;
+    private final ConfigWrapper BOUNTY_CANCEL_CONFIG;
+    private static Map<UUID, Boolean> notifySettings = new HashMap<>();
+
 
     public static BountiesPlus getInstance() {
         return instance;
@@ -228,6 +230,14 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     }
 
     /**
+     * Gets the notification settings map
+     * // note: Returns the map of player UUIDs to their notification toggle states
+     */
+    public Map<UUID, Boolean> getNotifySettings() {
+        return notifySettings;
+    }
+
+    /**
      * Initializes the plugin on server startup
      * // note: Sets up DebugManager, configurations, managers, commands, and listeners
      */
@@ -238,9 +248,20 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         // Initialize DebugManager first to ensure it's available for ConfigWrapper
         debugManager = new DebugManager(this);
 
+        // Initialize MessageUtils to load messages.yml
+        MessageUtils.initialize(this);
+
+        // Initialize Vault economy
+        if (!setupEconomy()) {
+            getLogger().warning("[DEBUG - BountiesPlus] Failed to hook into Vault economy");
+        } else {
+            debugManager.logDebug("[DEBUG - BountiesPlus] Vault economy hooked successfully");
+        }
+
         // Initialize managers
         eventManager = new EventManager(this);
         List<String> warnings = new ArrayList<>();
+        mySQL = new MySQL(this); // Moved before bountyManager to prevent null reference
         bountyManager = new BountyManager(this, warnings);
         taxManager = new TaxManager(this);
         itemValueCalculator = new ItemValueCalculator(this);
@@ -249,7 +270,13 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         boostedBounty = new BoostedBounty(this, warnings);
         frenzy = new Frenzy(this, warnings);
         bountyStats = new BountyStats(this);
-        mySQL = new MySQL(this);
+        tracker = new Tracker(this, eventManager);
+        jammer = new Jammer(this, eventManager);
+        uav = new UAV(this, eventManager);
+        manualBoost = new ManualBoost(this, eventManager);
+        manualFrenzy = new ManualFrenzy(this, eventManager);
+        decreaseTime = new DecreaseTime(this, eventManager);
+        reverseBounty = new ReverseBounty(this, eventManager);
 
         // Register commands and tab completer
         BountyCommand bountyCommand = new BountyCommand(this);
@@ -281,14 +308,35 @@ public class BountiesPlus extends JavaPlugin implements Listener {
 
         // Initialize MySQL if enabled
         if (getConfig().getBoolean("mysql.enabled", false)) {
-            mySQL.connect();
+            mySQL.initialize();
             if (debugManager != null) {
                 debugManager.logDebug("[DEBUG - BountiesPlus] MySQL connection attempted");
             }
         }
 
         // Start cleanup task
-        Bukkit.getScheduler().runTaskTimer(this, () -> bountyManager.cleanup(warnings), 0L, 20L * 60L * 5L);
+        Bukkit.getScheduler().runTaskTimer(this, () -> bountyManager.cleanup(), 0L, 20L * 60L * 5L);
+    }
+
+    /**
+     * Constructs the BountiesPlus plugin
+     * // note: Initializes configuration wrappers
+     */
+    public BountiesPlus() {
+        this.CONFIG = new ConfigWrapper("config.yml");
+        this.MESSAGES_CONFIG = new ConfigWrapper("messages.yml");
+        this.ITEM_VALUE_CONFIG = new ConfigWrapper("ItemValue.yml");
+        this.ITEMS_CONFIG = new ConfigWrapper("items.yml");
+        this.BOUNTY_TEAM_CHECK_CONFIG = new ConfigWrapper("BountyTeamChecks.yml");
+        this.STAT_STORAGE_CONFIG = new ConfigWrapper("Storage/StatStorage.yml");
+        this.BOUNTY_STORAGE_CONFIG = new ConfigWrapper("Storage/BountyStorage.yml");
+        this.BOUNTY_GUI_CONFIG = new ConfigWrapper("GUIs/BountyGUI.yml");
+        this.TOP_GUI_CONFIG = new ConfigWrapper("GUIs/TopGUI.yml");
+        this.CREATE_GUI_CONFIG = new ConfigWrapper("GUIs/CreateGUI.yml");
+        this.HUNTER_DEN_CONFIG = new ConfigWrapper("GUIs/HuntersDen.yml");
+        this.PREVIEW_GUI_CONFIG = new ConfigWrapper("GUIs/PreviewGUI.yml");
+        this.ADD_ITEMS_CONFIG = new ConfigWrapper("GUIs/AddItemsGUI.yml");
+        this.BOUNTY_CANCEL_CONFIG = new ConfigWrapper("GUIs/BountyCancelGUI.yml");
     }
 
     /**
@@ -312,23 +360,31 @@ public class BountiesPlus extends JavaPlugin implements Listener {
     }
 
     /**
-     * Reloads all configurations and data
-     * // note: Refreshes configs, MySQL, and all systems
+     * Reloads all plugin configurations and systems
+     * // note: Refreshes all managers and configurations from disk
      */
     public void reloadEverything() {
-        List<String> warnings = new ArrayList<>();
-        reloadAllConfigs();
-        mySQL.initialize();
-        mySQL.migrateData();
-        mySQL.migrateStatsData();
-        if (bountyManager != null) bountyManager.reload(warnings);
-        if (frenzy != null) frenzy.reload(warnings);
-        if (boostedBounty != null) boostedBounty.reload(warnings);
-        if (shopGuiPlusIntegration != null) shopGuiPlusIntegration.reload();
-        if (!warnings.isEmpty()) {
-            getLogger().warning("Configuration reload warnings: " + String.join("; ", warnings));
+        try {
+            reloadConfig();
+            MessageUtils.reloadMessages();
+            getBountyManager().reload(new ArrayList<>());
+            FileConfiguration bountyConfig = getBountiesConfig();
+            notifySettings.clear();
+            if (bountyConfig.contains("players")) {
+                for (String uuidStr : bountyConfig.getConfigurationSection("players").getKeys(false)) {
+                    try {
+                        UUID uuid = UUID.fromString(uuidStr);
+                        boolean notifyEnabled = bountyConfig.getBoolean("players." + uuidStr + ".notify-enabled", true);
+                        notifySettings.put(uuid, notifyEnabled);
+                    } catch (IllegalArgumentException e) {
+                        getLogger().warning("[DEBUG - BountiesPlus] Invalid UUID in BountyStorage.yml: " + uuidStr);
+                    }
+                }
+            }
+            getLogger().info("[DEBUG - BountiesPlus] Reloaded all configurations and data");
+        } catch (Exception e) {
+            getLogger().warning("[DEBUG - BountiesPlus] Error reloading configurations: " + e.getMessage());
         }
-        getLogger().info("All configurations reloaded.");
     }
 
     /**
@@ -405,28 +461,24 @@ public class BountiesPlus extends JavaPlugin implements Listener {
         }
         return config;
     }
-
     /**
-     * Saves all data to storage
-     * // note: Persists bounties, stats, and configurations
+     * Saves all plugin data to disk
+     * // note: Persists configurations, bounties, and player settings
      */
     public void saveEverything() {
-        saveConfig();
-        CONFIG.save();
-        MESSAGES_CONFIG.save();
-        ITEM_VALUE_CONFIG.save();
-        ITEMS_CONFIG.save();
-        BOUNTY_TEAM_CHECK_CONFIG.save();
-        STAT_STORAGE_CONFIG.save();
-        BOUNTY_STORAGE_CONFIG.save();
-        BOUNTY_GUI_CONFIG.save();
-        TOP_GUI_CONFIG.save();
-        CREATE_GUI_CONFIG.save();
-        HUNTER_DEN_CONFIG.save();
-        PREVIEW_GUI_CONFIG.save();
-        ADD_ITEMS_CONFIG.save();
-        BOUNTY_CANCEL_CONFIG.save();
-        if (shopGuiPlusIntegration != null) shopGuiPlusIntegration.cleanup();
+        try {
+            saveConfig();
+            getBountyManager().saveBounties();
+            getStatsConfig().save(new File(getDataFolder(), "Storage/StatStorage.yml"));
+            FileConfiguration bountyConfig = getBountiesConfig();
+            for (Map.Entry<UUID, Boolean> entry : notifySettings.entrySet()) {
+                bountyConfig.set("players." + entry.getKey() + ".notify-enabled", entry.getValue());
+            }
+            BOUNTY_STORAGE_CONFIG.save(); // Save BountyStorage.yml directly
+            getLogger().info("[DEBUG - BountiesPlus] Saved all configurations and data");
+        } catch (Exception e) {
+            getLogger().warning("[DEBUG - BountiesPlus] Error saving configurations: " + e.getMessage());
+        }
     }
 
     /**

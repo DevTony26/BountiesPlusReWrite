@@ -40,103 +40,44 @@ public class MessageUtils {
     }
 
     /**
-     * Sends a formatted message to a player, handling single strings or lists with PlaceholderAPI
-     * // note: Retrieves message from messages.yml, formats with color codes and PlaceholderAPI placeholders, and sends as BaseComponent[]
-     *
-     * @param player     The player to send the message to
-     * @param messageKey The key in messages.yml to retrieve the message from
+     * Sends a formatted message to a player using a message key
+     * // note: Retrieves message from messages.yml, applies placeholders, and sends as BaseComponent
      */
     public static void sendFormattedMessage(Player player, String messageKey) {
-        if (player == null || messageKey == null) {
-            if (plugin.getLogger() != null) {
-                plugin.getLogger().warning("Invalid sendFormattedMessage call: player or messageKey is null");
-            }
-            return;
-        }
-
-        Object messageObj = messagesConfig.get(messageKey);
-
-        // Handle missing or invalid message path
-        if (messageObj == null) {
-            player.sendMessage(ChatColor.RED + "Message not found: " + messageKey);
-            return;
-        }
-
-        List<String> messages;
-        // Check if it's a single string or a list
-        if (messageObj instanceof String) {
-            String message = messagesConfig.getString(messageKey);
-            if (message == null || message.isEmpty()) {
-                player.sendMessage(ChatColor.RED + "Message not found: " + messageKey);
-                return;
-            }
-            messages = Collections.singletonList(message);
-        } else if (messageObj instanceof List) {
-            messages = messagesConfig.getStringList(messageKey);
-            if (messages.isEmpty()) {
-                player.sendMessage(ChatColor.RED + "Message not found: " + messageKey);
-                return;
-            }
-        } else {
-            player.sendMessage(ChatColor.RED + "Message not found: " + messageKey);
-            return;
-        }
-
-        // Format and send each message line
-        for (String message : messages) {
-            String formatted = formatMessage(message, player);
-            BaseComponent[] components = TextComponent.fromLegacyText(formatted);
-            player.spigot().sendMessage(components);
-        }
+        sendFormattedMessage(player, messageKey, null);
     }
 
     /**
-     * Sends a formatted message to a player with context, handling single strings or lists with PlaceholderAPI
-     * // note: Retrieves message from messages.yml, formats with color codes and PlaceholderAPI placeholders using context, and sends as BaseComponent[]
-     *
-     * @param player     The player to send the message to
-     * @param messageKey The key in messages.yml to retrieve the message from
-     * @param context    The PlaceholderContext for placeholder resolution
+     * Sends a formatted message with placeholders to a player
+     * // note: Retrieves message from messages.yml, applies PlaceholderAPI and context, and sends as BaseComponent
      */
     public static void sendFormattedMessage(Player player, String messageKey, PlaceholderContext context) {
-        if (player == null || messageKey == null) {
-            if (plugin.getLogger() != null) {
-                plugin.getLogger().warning("Invalid sendFormattedMessage call: player or messageKey is null");
-            }
-            return;
-        }
-
-        Object messageObj = messagesConfig.get(messageKey);
-
-        // Handle missing or invalid message path
-        if (messageObj == null) {
+        if (messagesConfig == null) {
+            BountiesPlus.getInstance().getLogger().warning("[DEBUG - MessageUtils] messagesConfig is null, cannot send message: " + messageKey);
             player.sendMessage(ChatColor.RED + "Message not found: " + messageKey);
             return;
         }
 
-        List<String> messages;
-        // Check if it's a single string or a list
-        if (messageObj instanceof String) {
-            String message = messagesConfig.getString(messageKey);
-            if (message == null || message.isEmpty()) {
-                player.sendMessage(ChatColor.RED + "Message not found: " + messageKey);
-                return;
-            }
-            messages = Collections.singletonList(message);
-        } else if (messageObj instanceof List) {
-            messages = messagesConfig.getStringList(messageKey);
+        if (messagesConfig.isList(messageKey)) {
+            List<String> messages = messagesConfig.getStringList(messageKey);
             if (messages.isEmpty()) {
                 player.sendMessage(ChatColor.RED + "Message not found: " + messageKey);
                 return;
             }
+            for (String message : messages) {
+                String formatted = ChatColor.translateAlternateColorCodes('&', message);
+                if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+                    formatted = PlaceholderAPI.setPlaceholders(player, formatted);
+                }
+                BaseComponent[] components = TextComponent.fromLegacyText(formatted);
+                player.spigot().sendMessage(components);
+            }
         } else {
-            player.sendMessage(ChatColor.RED + "Message not found: " + messageKey);
-            return;
-        }
-
-        // Format and send each message line
-        for (String message : messages) {
-            String formatted = formatMessage(message, player, context);
+            String message = messagesConfig.getString(messageKey, "Message not found: " + messageKey);
+            String formatted = ChatColor.translateAlternateColorCodes('&', Placeholders.apply(message, context));
+            if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI")) {
+                formatted = PlaceholderAPI.setPlaceholders(player, formatted);
+            }
             BaseComponent[] components = TextComponent.fromLegacyText(formatted);
             player.spigot().sendMessage(components);
         }

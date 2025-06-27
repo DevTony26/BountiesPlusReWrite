@@ -7,7 +7,7 @@ softdepend: [ShopGUIPlus, ProtocolLib]
 commands:
   bounty:
     description: Manage bounties on players
-    usage: /<command> [set|check|cancel|stats|status|give|reload|frenzy|top]
+    usage: /<command> [set|check|cancel|stats|status|give|reload|frenzy|top|notify]
     permission: bountiesplus.bounty
 permissions:
   bountiesplus.bounty:
@@ -33,4 +33,7 @@ permissions:
     default: op
   bountiesplus.particle:
     description: Allows toggling particle visibility
+    default: true
+  bountiesplus.notify.toggle:
+    description: Allows toggling bounty notifications
     default: true

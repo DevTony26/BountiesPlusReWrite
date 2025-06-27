@@ -58,6 +58,21 @@ bounty-no-economy:
   - "&c&lNo Economy Plugin"
   - "&7No economy plugin found!"
   - "&7&m----------------------------------------"
+bounty-below-minimum:
+  - "&7&m----------------------------------------"
+  - "&c&lBelow Minimum Amount"
+  - "&7Bounty amount must be at least &e$100.00"
+  - "&7&m----------------------------------------"
+bounty-above-maximum:
+  - "&7&m----------------------------------------"
+  - "&c&lAbove Maximum Amount"
+  - "&7Bounty amount cannot exceed $1,000,000!"
+  - "&7&m----------------------------------------"
+invalid-amount:
+  - "&7&m----------------------------------------"
+  - "&c&lInvalid Amount"
+  - "&7Please enter a valid number for the bounty amount!"
+  - "&7&m----------------------------------------"
 no-experience-levels:
   - "&7&m----------------------------------------"
   - "&c&lInsufficient Experience"
@@ -340,7 +355,19 @@ bounty-set-self:
   - "&c&lCannot Bounty Self"
   - "&7You cannot place a bounty on yourself."
   - "&7&m----------------------------------------"
-
+#====================================================================================================
+# Bounty Notification Messages
+#====================================================================================================
+notify-enabled:
+  - "&7&m----------------------------------------"
+  - "&a&lNotifications Enabled"
+  - "&7You will now receive bounty notifications."
+  - "&7&m----------------------------------------"
+notify-disabled:
+  - "&7&m----------------------------------------"
+  - "&c&lNotifications Disabled"
+  - "&7You will no longer receive bounty notifications."
+  - "&7&m----------------------------------------"
 #====================================================================================================
 # /Bounty Cancel Messages
 #====================================================================================================
@@ -395,7 +422,7 @@ bounty-status-usage:
 bounty-status-none:
   - "&7&m----------------------------------------"
   - "&c&lNo Bounties"
-  - "&7%bountiesplus_target% &7has no bounties."
+  - "&7%player_name% &7has no bounties."
   - "&7&m----------------------------------------"
 bounty-status:
   - "&7&m----------------------------------------"

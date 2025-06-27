@@ -1,6 +1,7 @@
 package tony26.bountiesPlus;
 
 import net.milkbowl.vault.economy.Economy;
+import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -46,25 +47,35 @@ public class AnonymousBounty {
         double taxAmount = session.getMoney() * taxRate;
 
         BountyManager manager = plugin.getBountyManager();
-        Bounty bounty = new Bounty(plugin, targetUUID);
-        bounty.sponsorUUID = player.getUniqueId();
-        bounty.money = session.getMoney();
-        bounty.exp = session.getExp();
-        bounty.items = session.getItems();
-        bounty.isAnonymous = true;
-        bounty.taxRate = taxRate;
-        bounty.taxAmount = taxAmount;
-        manager.addBounty(targetUUID, player.getUniqueId(), (int) session.getMoney());
+        List<ItemStack> items = new ArrayList<>(session.getItemRewards());
+        manager.addAnonymousBounty(targetUUID, player.getUniqueId(), session.getMoney(), session.getExperience(), session.getTimeMinutes(), items);
 
         FileConfiguration guiConfig = plugin.getCreateGUIConfig();
-        FileConfiguration messagesConfig = plugin.getMessagesConfig();
+        PlaceholderContext context = PlaceholderContext.create()
+                .player(player)
+                .target(targetUUID)
+                .moneyValue(session.getMoney())
+                .expValue(session.getExperience())
+                .timeValue(session.getFormattedTime())
+                .itemCount(items.size())
+                .itemValue(items.stream().mapToDouble(item -> plugin.getItemValueCalculator().calculateItemValue(item)).sum())
+                .taxRate(taxRate)
+                .taxAmount(taxAmount);
 
-        MessageUtils.sendFormattedMessage(player, "bounty-created");
-        session.clear();
+        MessageUtils.sendFormattedMessage(player, "bounty-created", context);
+        session.setMoney(0);
+        session.setExperience(0);
+        session.setTimeMinutes(0);
+        session.setItemRewards(new ArrayList<>());
+        session.setTarget(null, null);
+        session.clearAwaitingInput();
         player.closeInventory();
 
         if (guiConfig.getBoolean("confirm-button.confirm-button-filler", false)) {
-            new CreateGUI(player, plugin.getEventManager());
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                CreateGUI newGui = new CreateGUI(player, plugin.getEventManager());
+                newGui.openInventory(player);
+            });
         }
     }
 
@@ -91,19 +102,21 @@ public class AnonymousBounty {
                 .itemCount(session.getItemRewards().size())
                 .itemValue(session.getItemRewards().stream().mapToDouble(item -> plugin.getItemValueCalculator().calculateItemValue(item)).sum());
         context = context.setter(player.getUniqueId())
-                .taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
-                .taxAmount(session.getMoney() * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
+                .taxRate(plugin.getConfig().getDouble("bounties.tax.bounty-place-tax-rate", 0.0))
+                .taxAmount(session.getMoney() * plugin.getConfig().getDouble("bounties.tax.bounty-place-tax-rate", 0.0))
                 .withAmount(anonymousCost); // Add anonymous cost to context
         MessageUtils.sendFormattedMessage(player, "anonymous-bounty-prompt", context);
     }
+
     /**
      * Calculates the cost for an anonymous bounty based on bounty value
+     * // note: Computes anonymous bounty fee with configured percentage and limits
      */
     private double calculateAnonymousCost(double bountyAmount) {
         FileConfiguration config = plugin.getConfig();
-        double basePercentage = config.getDouble("anonymous-bounties.base-percentage", 15.0);
-        double minCost = config.getDouble("anonymous-bounties.minimum-cost", 50.0);
-        double maxCost = config.getDouble("anonymous-bounties.maximum-cost", 5000.0);
+        double basePercentage = config.getDouble("bounties.anonymous-bounties.base-percentage", 15.0);
+        double minCost = config.getDouble("bounties.anonymous-bounties.minimum-cost", 50.0);
+        double maxCost = config.getDouble("bounties.anonymous-bounties.maximum-cost", 5000.0);
         double percentageCost = bountyAmount * (basePercentage / 100.0);
         double finalCost = Math.max(minCost, Math.min(maxCost, percentageCost));
         return Math.round(finalCost * 100.0) / 100.0;
@@ -111,6 +124,7 @@ public class AnonymousBounty {
 
     /**
      * Processes the player's anonymous decision
+     * // note: Handles player input for anonymity confirmation and sets bounty accordingly
      */
     public void processAnonymousInput(Player player, AnonymousSession session, String input) {
         UUID playerUUID = player.getUniqueId();
@@ -132,22 +146,21 @@ public class AnonymousBounty {
         switch (input) {
             case "yes":
             case "y":
+                bountySession.setAnonymous(true); // Set anonymity
                 placeAnonymousBounty(player, session);
                 break;
             case "no":
             case "n":
+                bountySession.setAnonymous(false); // Ensure non-anonymous
                 placeNormalBounty(player, bountySession);
                 break;
             case "cancel":
-                String cancelMessage = guiConfig.getString("messages.anonymous-prompt-cancelled", "&aReturned to bounty creation GUI.");
-                player.sendMessage(Placeholders.apply(cancelMessage, context));
+                MessageUtils.sendFormattedMessage(player, "anonymous-prompt-cancelled", context);
                 bountySession.returnToCreateGUI();
                 plugin.getLogger().info("Resumed CreateGUI for " + player.getName() + " after cancelling anonymous prompt");
                 break;
             default:
-                String invalidMessage = guiConfig.getString("messages.invalid-anonymous-input", "&cInvalid input: '&f%input%&c'\n&7Please type &f'yes'&7, &f'y'&7, &f'no'&7, &f'n'&7, or &f'cancel'");
-                invalidMessage = invalidMessage.replace("%input%", input);
-                player.sendMessage(Placeholders.apply(invalidMessage, context));
+                MessageUtils.sendFormattedMessage(player, "invalid-anonymous-input", context.input(input));
                 plugin.getLogger().info("Invalid anonymous input by " + player.getName() + ": " + input);
                 return;
         }
@@ -158,7 +171,8 @@ public class AnonymousBounty {
     }
 
     /**
-     * Places an anonymous bounty // note: Creates a bounty with money, items, XP, and duration, hiding the setter’s identity
+     * Places an anonymous bounty
+     * // note: Creates a bounty with money, items, XP, and duration, hiding the setter’s identity
      */
     private void placeAnonymousBounty(Player player, AnonymousSession session) {
         BountyCreationSession bountySession = session.getBountySession();
@@ -174,8 +188,8 @@ public class AnonymousBounty {
                 .itemCount(bountySession.getItemRewards().size())
                 .itemValue(bountySession.getItemRewards().stream().mapToDouble(item -> plugin.getItemValueCalculator().calculateItemValue(item)).sum());
         context = context.setter(player.getUniqueId())
-                .taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
-                .taxAmount(bountySession.getMoney() * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0));
+                .taxRate(plugin.getConfig().getDouble("bounties.tax.bounty-place-tax-rate", 0.0))
+                .taxAmount(bountySession.getMoney() * plugin.getConfig().getDouble("bounties.tax.bounty-place-tax-rate", 0.0));
         plugin.getLogger().info("[AnonymousBounty] Attempting to place anonymous bounty by " + player.getName() +
                 " on " + bountySession.getTargetName() + ": Money=$" + bountySession.getMoney() +
                 ", Items=" + bountySession.getItemRewards().size() + ", XP=" + bountySession.getExperience() +

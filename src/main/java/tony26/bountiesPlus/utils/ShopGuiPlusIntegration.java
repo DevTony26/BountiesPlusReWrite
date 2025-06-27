@@ -47,7 +47,7 @@ public class ShopGuiPlusIntegration {
      * // note: Returns true if ShopGUIPlus is installed and use-shop-gui-plus is true
      */
     public boolean isEnabled() {
-        return isShopGuiPlusEnabled && plugin.getConfig().getBoolean("shop.use-shop-gui-plus", false);
+        return isShopGuiPlusEnabled && plugin.getConfig().getBoolean("bounties.shop.use-shop-gui-plus", false);
     }
 
     /**
@@ -148,7 +148,7 @@ public class ShopGuiPlusIntegration {
      * // note: Attempts to open ShopGUIPlus shop, falls back to HunterDenGUI if disabled or unavailable
      */
     public void openShop(Player player) {
-        if (!plugin.getConfig().getBoolean("shop.use-shop-gui-plus", false)) {
+        if (!plugin.getConfig().getBoolean("bounties.shop.use-shop-gui-plus", false)) {
             HunterDenGUI gui = new HunterDenGUI(player, plugin.getEventManager());
             gui.openInventory(player);
             plugin.getDebugManager().logDebug("[ShopGuiPlusIntegration] Opened default HunterDenGUI for " + player.getName());
@@ -173,7 +173,7 @@ public class ShopGuiPlusIntegration {
      */
     private boolean processSkullPurchase(Player player, String itemId, int skullCount, double minSkullValue) {
         FileConfiguration config = plugin.getHuntersDenConfig();
-        boolean allowExpiredSkulls = plugin.getConfig().getBoolean("shop.allow-expired-skulls", true);
+        boolean allowExpiredSkulls = plugin.getConfig().getBoolean("bounties.allow-expired-skulls", true);
         int validSkulls = 0;
         List<ItemStack> toRemove = new ArrayList<>();
 
@@ -207,7 +207,7 @@ public class ShopGuiPlusIntegration {
             int amount = item.getAmount();
             int toRemoveAmount = Math.min(amount, remaining);
             if (toRemoveAmount == amount) {
-                item.setType(XMaterial.AIR.parseMaterial());
+                item.setType(Material.AIR); // Use Material.AIR instead of XMaterial.AIR
             } else {
                 item.setAmount(amount - toRemoveAmount);
             }
