@@ -4,7 +4,9 @@ package tony26.bountiesPlus.wrappers;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
@@ -71,6 +73,26 @@ public class LegacyVersionWrapper implements VersionWrapper {
             BountiesPlus.getInstance().getLogger().warning("Error validating skull owner for " + expectedOwner + ": " + e.getMessage()); // Logs error
             return false; // Returns false on error
         }
+    }
+
+    /**
+     * Applies a glow effect to an item if enabled
+     * // note: Adds DURABILITY enchantment with HIDE_ENCHANTS flag for 1.8.8 compatibility
+     */
+    @Override
+    public void applyGlow(ItemStack item, boolean glowEnabled) {
+        if (item == null || item.getType() == Material.AIR || !glowEnabled) {
+            return;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - LegacyVersionWrapper] Failed to get ItemMeta for glow on item " + item.getType().name());
+            return;
+        }
+        meta.addEnchant(Enchantment.DURABILITY, 1, true);
+        meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+        item.setItemMeta(meta);
+        BountiesPlus.getInstance().getDebugManager().logDebug("[DEBUG - LegacyVersionWrapper] Applied glow to item " + item.getType().name());
     }
 
     /**

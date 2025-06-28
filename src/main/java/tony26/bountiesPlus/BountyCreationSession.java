@@ -1,15 +1,15 @@
 package tony26.bountiesPlus;
 
+import net.md_5.bungee.api.chat.TextComponent;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.scheduler.BukkitTask;
 import tony26.bountiesPlus.GUIs.CreateGUI;
-import tony26.bountiesPlus.utils.CurrencyUtil;
-import tony26.bountiesPlus.utils.PlaceholderContext;
-import tony26.bountiesPlus.utils.Placeholders;
-import tony26.bountiesPlus.utils.TimeFormatter;
+import tony26.bountiesPlus.utils.*;
 
 import java.util.*;
 
@@ -34,12 +34,16 @@ public class BountyCreationSession {
     private String lastChatInput = null;
     private long lastChatTimestamp = 0;
     private boolean isAnonymous = false; // Added for anonymous bounty support
+    private boolean isPaused = false;
+    private BukkitTask alertTask = null;
+    private final BountiesPlus plugin;
 
     /**
      * Constructs a new bounty creation session for a player
      * // note: Initializes an empty session for bounty creation
      */
     private BountyCreationSession(Player player) {
+        this.plugin = BountiesPlus.getInstance();
         this.player = player;
         this.lastChatInput = null;
         this.lastChatTimestamp = 0;
@@ -324,6 +328,54 @@ public class BountyCreationSession {
         }
 
         return true;
+    }
+
+    /**
+     * Resumes the bounty creation session and cancels alert task
+     * // note: Restores session state and stops periodic alerts
+     */
+    public void resumeSession() {
+        this.isPaused = false;
+        if (alertTask != null) {
+            alertTask.cancel();
+            alertTask = null;
+        }
+        BountiesPlus.getInstance().getDebugManager().logDebug("[DEBUG - BountyCreationSession] Resumed session for " + player.getName());
+    }
+
+    /**
+     * Checks if the session is paused
+     * // note: Returns true if the session is in a paused state
+     */
+    public boolean isPaused() {
+        return isPaused;
+    }
+
+
+    /**
+     * Pauses the bounty creation session and starts alert task if enabled
+     * // note: Saves session state and schedules periodic alerts for active session
+     */
+    public void pauseSession() {
+        this.isPaused = true;
+        BountiesPlus plugin = BountiesPlus.getInstance();
+        FileConfiguration config = plugin.getCreateGUIConfig();
+        DebugManager debugManager = plugin.getDebugManager();
+        if (config.getBoolean("pause-button.send-alert.enabled", true)) {
+            long intervalTicks = config.getLong("pause-button.send-alert.alert-interval", 60) * 20L; // Convert seconds to ticks
+            String alertMessagePath = "pause-button.send-alert.session-paused-alert";
+            String alertMessage = config.getString(alertMessagePath, "&eYou have an active bounty creation session. Use /bounty to resume.");
+            if (!config.contains(alertMessagePath)) {
+                debugManager.logWarning("[DEBUG - BountyCreationSession] Missing message at " + alertMessagePath + " in CreateGUI.yml, using default");
+            }
+            alertTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+                if (isPaused && player.isOnline()) {
+                    String formattedMessage = MessageUtils.formatMessage(alertMessage, player, PlaceholderContext.create().player(player));
+                    player.spigot().sendMessage(TextComponent.fromLegacyText(formattedMessage));
+                }
+            }, intervalTicks, intervalTicks);
+        }
+        debugManager.logDebug("[DEBUG - BountyCreationSession] Paused session for " + player.getName());
     }
 
     /**

@@ -101,7 +101,7 @@ public class MessageUtils {
      * @param player  The player for PlaceholderAPI context
      * @return The fully formatted string
      */
-    private static String formatMessage(String message, Player player) {
+    public static String formatMessage(String message, Player player) {
         if (message == null) return "";
 
         // Translate color codes
@@ -124,20 +124,18 @@ public class MessageUtils {
      * @param context The PlaceholderContext for placeholder resolution
      * @return The fully formatted string
      */
-    private static String formatMessage(String message, Player player, PlaceholderContext context) {
+    public static String formatMessage(String message, Player player, PlaceholderContext context) {
         if (message == null) return "";
+
+        // Apply context placeholders
+        message = Placeholders.apply(message, context);
 
         // Translate color codes
         message = ChatColor.translateAlternateColorCodes('&', message);
 
         // Apply PlaceholderAPI with context if installed
         if (Bukkit.getPluginManager().isPluginEnabled("PlaceholderAPI") && player != null) {
-            if (context != null) {
-                Placeholders.apply(message, context); // Sets context in Placeholders.contextMap
-                message = PlaceholderAPI.setPlaceholders(player, message);
-            } else {
-                message = PlaceholderAPI.setPlaceholders(player, message);
-            }
+            message = PlaceholderAPI.setPlaceholders(player, message);
         }
 
         return message;

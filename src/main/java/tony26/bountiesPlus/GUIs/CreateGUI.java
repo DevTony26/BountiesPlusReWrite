@@ -69,7 +69,7 @@ public class CreateGUI implements InventoryHolder, Listener {
 
     /**
      * Loads protected slots from configuration
-     * // note: Initializes protectedSlots with slots from Plugin-Items and Custom-Items
+     * // note: Initializes protectedSlots with slots from Plugin-Items, Custom-Items, and pause-button when enabled
      */
     private void loadProtectedSlots(FileConfiguration config) {
         protectedSlots.clear();
@@ -78,9 +78,7 @@ public class CreateGUI implements InventoryHolder, Listener {
         }
 
         // Add slots from Plugin-Items
-        for (String button : Arrays.asList("confirm-button", "cancel-button", "add-items-button",
-                "add-money-button", "total-bounty-value-button",
-                "add-experience-button", "add-time-button")) {
+        for (String button : Arrays.asList("confirm-button", "cancel-button", "add-items-button", "add-money-button", "total-bounty-value-button", "add-experience-button", "add-time-button", "pause-button")) {
             int slot = config.getInt(button + ".slot", -1);
             if (slot >= 0 && slot < 54) {
                 protectedSlots.add(slot);
@@ -120,12 +118,12 @@ public class CreateGUI implements InventoryHolder, Listener {
 
     /**
      * Constructs the CreateGUI for a player
-     * // note: Initializes the bounty creation GUI with player heads and buttons
+     * // note: Initializes the bounty creation GUI with player heads, buttons, and paused session handling
      */
     public CreateGUI(Player player, EventManager eventManager) {
         this.player = player;
         this.plugin = BountiesPlus.getInstance();
-        this.session = BountyCreationSession.getSession(player);
+        this.session = BountyCreationSession.getOrCreateSession(player); // Use getOrCreateSession to resume paused sessions
         FileConfiguration config = plugin.getCreateGUIConfig();
         File configFile = new File(plugin.getDataFolder(), "GUIs/CreateGUI.yml");
 
@@ -154,6 +152,12 @@ public class CreateGUI implements InventoryHolder, Listener {
         addBottomRowButtons();
         refreshGUI();
         eventManager.register(this);
+
+        // Resume paused session if exists
+        if (session.isPaused()) {
+            session.resumeSession();
+            plugin.getDebugManager().logDebug("[DEBUG - CreateGUI] Resumed paused session for " + player.getName());
+        }
     }
 
     /**
@@ -170,32 +174,17 @@ public class CreateGUI implements InventoryHolder, Listener {
         }
         Set<Integer> uniqueSlots = new HashSet<>();
         List<Integer> validSlots = new ArrayList<>();
-        Set<Integer> reservedSlots = new HashSet<>(Arrays.asList(
-                config.getInt("confirm-button.slot", 52),
-                config.getInt("add-items-button.slot", 50),
-                config.getInt("add-money-button.slot", 48),
-                config.getInt("total-bounty-value-button.slot", 49),
-                config.getInt("add-experience-button.slot", 47),
-                config.getInt("add-time-button.slot", 51),
-                config.getInt("cancel-button.slot", 46)
-        ));
-        reservedSlots.addAll(config.getIntegerList("border.slots"));
+        Set<Integer> reservedSlots = new HashSet<>(Arrays.asList(config.getInt("Plugin-Items.confirm-button.slot", 52), config.getInt("Plugin-Items.add-items-button.slot", 50), config.getInt("Plugin-Items.add-money-button.slot", 48), config.getInt("Plugin-Items.total-bounty-value-button.slot", 49), config.getInt("Plugin-Items.add-experience-button.slot", 47), config.getInt("Plugin-Items.add-time-button.slot", 51), config.getInt("Plugin-Items.cancel-button.slot", 46), config.getInt("Plugin-Items.pause-button.slot", 4)));
         if (config.contains("Custom-Items")) {
             for (String key : config.getConfigurationSection("Custom-Items").getKeys(false)) {
-                String path = "Custom-Items." + key;
-                if (config.contains(path + ".slot")) {
-                    reservedSlots.add(config.getInt(path + ".slot"));
-                }
-                if (config.contains(path + ".slots")) {
-                    reservedSlots.addAll(config.getIntegerList(path + ".slots"));
-                }
+                reservedSlots.addAll(config.getIntegerList("Custom-Items." + key + ".slots"));
             }
         }
         for (int slot : slots) {
             if (slot >= 0 && slot < 54 && !reservedSlots.contains(slot) && uniqueSlots.add(slot)) {
                 validSlots.add(slot);
             } else {
-                debugManager.logWarning("[DEBUG - CreateGUI] Invalid or reserved bounty-skull-slot " + slot + " in CreateGUI.yml (must be 0-53, unique, not in border or Plugin-Items)");
+                debugManager.logWarning("[DEBUG - CreateGUI] Invalid or reserved bounty-skull-slot " + slot + " in CreateGUI.yml (must be 0-53, unique, not in Custom-Items or Plugin-Items)");
             }
         }
         if (validSlots.isEmpty()) {
@@ -251,8 +240,7 @@ public class CreateGUI implements InventoryHolder, Listener {
                 if (!offlinePlayer.hasPlayedBefore() && !offlinePlayer.isOnline()) {
                     continue;
                 }
-                boolean isBoosted = boostedBounty != null && boostedBounty.getCurrentBoostedTarget() != null &&
-                        boostedBounty.getCurrentBoostedTarget().equals(offlinePlayer.getUniqueId());
+                boolean isBoosted = boostedBounty != null && boostedBounty.getCurrentBoostedTarget() != null && boostedBounty.getCurrentBoostedTarget().equals(offlinePlayer.getUniqueId());
                 if (isBoosted) {
                     boostedPlayers.add(offlinePlayer);
                 } else {
@@ -305,14 +293,15 @@ public class CreateGUI implements InventoryHolder, Listener {
     private void refreshGUI() {
         // Clear the inventory
         inventory.clear();
+        protectedSlots.clear();
 
-        // Add custom filler items (including borders)
+        // Add custom filler items (including borders) first
         addCustomFillerItems();
 
         // Add player heads with pagination
         addPlayerHeads();
 
-        // Add bottom row buttons
+        // Add bottom row buttons last to ensure precedence
         addBottomRowButtons();
 
         // Update GUI Items based on session state (if exists)
@@ -338,132 +327,105 @@ public class CreateGUI implements InventoryHolder, Listener {
     }
 
     /**
-     * Adds border items to the GUI based on configuration
-     * // note: Populates border slots with configured material
-     */
-    private void addBorders() {
-        FileConfiguration config = plugin.getCreateGUIConfig();
-        DebugManager debugManager = plugin.getDebugManager();
-        if (!config.getBoolean("border.enabled", true)) {
-            debugManager.logDebug("[DEBUG - CreateGUI] Borders disabled in CreateGUI.yml");
-            return;
-        }
-        String materialName = config.getString("border.material", "WHITE_STAINED_GLASS_PANE");
-        ItemStack borderItem = VersionUtils.getXMaterialItemStack(materialName);
-        if (borderItem.getType() == Material.STONE && !materialName.equalsIgnoreCase("WHITE_STAINED_GLASS_PANE")) {
-            debugManager.logWarning("[DEBUG - CreateGUI] Invalid border material '" + materialName + "' in CreateGUI.yml, using WHITE_STAINED_GLASS_PANE");
-            borderItem = VersionUtils.getXMaterialItemStack("WHITE_STAINED_GLASS_PANE");
-        }
-        ItemMeta borderMeta = borderItem.getItemMeta();
-        if (borderMeta != null) {
-            borderMeta.setDisplayName(" ");
-            if (config.getBoolean("border.enchantment-glow", false)) {
-                borderMeta.addEnchant(Enchantment.DURABILITY, 1, true);
-                borderMeta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-            }
-            borderItem.setItemMeta(borderMeta);
-        } else {
-            debugManager.logWarning("[DEBUG - CreateGUI] Failed to get ItemMeta for border item");
-        }
-        List<Integer> borderSlots = config.getIntegerList("border.slots");
-        if (borderSlots.isEmpty()) {
-            borderSlots = Arrays.asList(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 17, 18, 26, 27, 35, 36, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53);
-        }
-        for (int slot : borderSlots) {
-            if (slot >= 0 && slot < 54) {
-                inventory.setItem(slot, borderItem.clone());
-                protectedSlots.add(slot);
-            } else {
-                debugManager.logWarning("[DEBUG - CreateGUI] Invalid slot " + slot + " in CreateGUI.yml border configuration (must be 0-53)");
-            }
-        }
-        addCustomFillerItems();
-    }
-
-    /**
      * Adds custom filler items to empty slots based on configuration
      * // note: Populates non-protected slots with configurable items, applies enchantment glow when bounty session is active if enabled
      */
     private void addCustomFillerItems() {
         FileConfiguration config = plugin.getCreateGUIConfig();
         DebugManager debugManager = plugin.getDebugManager();
+        BountyCreationSession session = BountyCreationSession.getSession(player);
+        boolean hasActiveSession = session != null && session.hasChanges();
+
         if (!config.contains("Custom-Items")) {
             debugManager.logDebug("[DEBUG - CreateGUI] No Custom-Items section found in CreateGUI.yml");
             addDefaultFillerItem();
             return;
         }
+
         int totalItems = config.getConfigurationSection("Custom-Items").getKeys(false).size();
         int successfulItems = 0;
         List<String> failures = new ArrayList<>();
+
         for (String itemKey : config.getConfigurationSection("Custom-Items").getKeys(false)) {
             String path = "Custom-Items." + itemKey;
-            String materialName = config.getString(path + ".Material", "WHITE_STAINED_GLASS_PANE");
-            ItemStack fillerItem = VersionUtils.getXMaterialItemStack(materialName);
-            String failureReason = null;
-            if (fillerItem.getType() == Material.STONE && !materialName.equalsIgnoreCase("WHITE_STAINED_GLASS_PANE")) {
-                debugManager.logWarning("[DEBUG - CreateGUI] Invalid material '" + materialName + "' for custom item '" + itemKey + "' in CreateGUI.yml, using WHITE_STAINED_GLASS_PANE");
-                failureReason = "Invalid material '" + materialName + "'";
-                fillerItem = VersionUtils.getXMaterialItemStack("WHITE_STAINED_GLASS_PANE");
-            }
-            ItemMeta meta = fillerItem.getItemMeta();
-            if (meta == null) {
-                debugManager.logWarning("[DEBUG - CreateGUI] Failed to get ItemMeta for custom item " + itemKey);
-                failureReason = "Failed to get ItemMeta";
-            } else {
-                PlaceholderContext context = PlaceholderContext.create().player(player);
-                String name = config.getString(path + ".Name", " ");
-                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', Placeholders.apply(name, context)));
-                List<String> lore = config.getStringList(path + ".Lore");
-                if (!lore.isEmpty()) {
-                    meta.setLore(Placeholders.apply(lore, context));
-                }
-                boolean enchantmentGlow = config.getBoolean(path + ".Enchantment-Glow", false);
-                boolean bountySessionGlow = config.getBoolean(path + ".bounty-session-glow", false);
-                if (enchantmentGlow || (bountySessionGlow && session != null && session.hasChanges())) {
-                    meta.addEnchant(Enchantment.DURABILITY, 1, true);
-                    meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-                    if (bountySessionGlow && session != null && session.hasChanges()) {
-                        debugManager.logDebug("[DEBUG - CreateGUI] Applied bounty-session-glow for custom item " + itemKey);
-                    }
-                }
-                fillerItem.setItemMeta(meta);
-            }
-            List<Integer> slots = config.getIntegerList(path + ".Slots");
+            String materialName = config.getString(path + ".material", "WHITE_STAINED_GLASS_PANE");
+            String name = config.getString(path + ".name", " ");
+            List<String> lore = config.getStringList(path + ".lore");
+            boolean enchantmentGlow = config.getBoolean(path + ".enchantment-glow", false);
+            boolean bountySessionGlow = config.getBoolean(path + ".bounty-session-glow", false);
+            List<Integer> slots = config.getIntegerList(path + ".slots");
+
             if (slots.isEmpty()) {
                 debugManager.logWarning("[DEBUG - CreateGUI] No slots defined for custom item '" + itemKey + "' in CreateGUI.yml, skipping");
                 failures.add(itemKey + " Reason: No slots defined");
                 continue;
             }
+
+            Material material = VersionUtils.getMaterialSafely(materialName, "WHITE_STAINED_GLASS_PANE");
+            if (material == Material.STONE && !materialName.equalsIgnoreCase("WHITE_STAINED_GLASS_PANE")) {
+                debugManager.logWarning("[DEBUG - CreateGUI] Invalid material '" + materialName + "' for custom item '" + itemKey + "' in CreateGUI.yml, using WHITE_STAINED_GLASS_PANE");
+                material = VersionUtils.getWhiteGlassPaneMaterial();
+                failures.add(itemKey + " Reason: Invalid material '" + materialName + "'");
+            }
+
+            ItemStack fillerItem = new ItemStack(material);
+            ItemMeta meta = fillerItem.getItemMeta();
+            if (meta == null) {
+                debugManager.logWarning("[DEBUG - CreateGUI] Failed to get ItemMeta for custom item '" + itemKey + "' in CreateGUI.yml");
+                failures.add(itemKey + " Reason: Failed to get ItemMeta");
+                continue;
+            }
+
+            PlaceholderContext context = PlaceholderContext.create().player(player);
+            meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', Placeholders.apply(name, context)));
+            if (!lore.isEmpty()) {
+                meta.setLore(Placeholders.apply(lore, context).stream().map(line -> ChatColor.translateAlternateColorCodes('&', line)).collect(Collectors.toList()));
+            }
+
+            VersionUtils.applyGlow(fillerItem, enchantmentGlow || (bountySessionGlow && hasActiveSession));
+            if (bountySessionGlow && hasActiveSession) {
+                debugManager.logDebug("[DEBUG - CreateGUI] Applied bounty-session-glow for custom item '" + itemKey + "'");
+            }
+
+            if (VersionUtils.isPost19()) {
+                meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+            }
+            fillerItem.setItemMeta(meta);
+
+            boolean placed = false;
             for (int slot : slots) {
-                if (slot >= 0 && slot < 54) {
-                    ItemStack existingItem = inventory.getItem(slot);
-                    if (existingItem == null || existingItem.getType() == Material.AIR) {
-                        if (failureReason == null) {
-                            inventory.setItem(slot, fillerItem.clone());
-                            protectedSlots.add(slot);
-                            successfulItems++;
-                        } else {
-                            failures.add(itemKey + " Reason: " + failureReason);
-                        }
-                    } else {
-                        debugManager.logWarning("[DEBUG - CreateGUI] Slot " + slot + " for custom item " + itemKey + " is already occupied");
-                        failures.add(itemKey + " Reason: Slot " + slot + " occupied");
-                    }
-                } else {
-                    debugManager.logWarning("[DEBUG - CreateGUI] Invalid slot " + slot + " for custom item '" + itemKey + "' in CreateGUI.yml");
+                if (slot < 0 || slot >= inventory.getSize()) {
+                    debugManager.logWarning("[DEBUG - CreateGUI] Invalid slot " + slot + " for custom item '" + itemKey + "' in CreateGUI.yml, must be 0-" + (inventory.getSize() - 1));
                     failures.add(itemKey + " Reason: Invalid slot " + slot);
+                    continue;
+                }
+                ItemStack existingItem = inventory.getItem(slot);
+                if (existingItem == null || existingItem.getType() == Material.AIR || !protectedSlots.contains(slot)) {
+                    inventory.setItem(slot, fillerItem.clone());
+                    protectedSlots.add(slot);
+                    placed = true;
+                } else {
+                    debugManager.logDebug("[DEBUG - CreateGUI] Skipped slot " + slot + " for custom item '" + itemKey + "': already occupied by protected item");
                 }
             }
+
+            if (placed) {
+                successfulItems++;
+                debugManager.logDebug("[DEBUG - CreateGUI] Loaded custom item '" + itemKey + "' into slots " + slots);
+            }
         }
+
         if (successfulItems == totalItems) {
-            debugManager.logDebug("[DEBUG - CreateGUI] All custom items created");
+            debugManager.logDebug("[DEBUG - CreateGUI] All custom items loaded successfully");
         } else {
-            String failureMessage = "[DEBUG - CreateGUI] " + successfulItems + "/" + totalItems + " custom items created";
+            String failureMessage = "[DEBUG - CreateGUI] " + successfulItems + "/" + totalItems + " custom items loaded";
             if (!failures.isEmpty()) {
-                failureMessage += ", failed to create: " + String.join(", ", failures);
+                failureMessage += ", failed: " + String.join(", ", failures);
             }
             debugManager.bufferFailure("CreateGUI_custom_items_" + System.currentTimeMillis(), failureMessage);
         }
+
+        addDefaultFillerItem();
     }
 
     /**
@@ -489,14 +451,13 @@ public class CreateGUI implements InventoryHolder, Listener {
 
     /**
      * Adds player heads to the GUI
-     * // note: Populates the inventory with player heads for bounty target selection
+     * // note: Populates the inventory with player heads for bounty target selection, moves selected target to first slot if enabled
      */
     private void addPlayerHeads() {
         DebugManager debugManager = plugin.getDebugManager();
-        int startIndex = currentPage * playerHeadSlots.length;
-        int endIndex = Math.min(startIndex + playerHeadSlots.length, availablePlayers.size());
         FileConfiguration config = plugin.getCreateGUIConfig();
         String configPath = "player-head";
+        boolean moveToFirstSlot = config.getBoolean(configPath + ".move-to-first-slot", true);
         String onlineStatusPath = configPath + ".online-status";
         String selectedName = config.getString(configPath + ".name.selected", "&6» &a%bountiesplus_target% &6«");
         String onlineName = config.getString(configPath + ".name.online", "&a%bountiesplus_target%");
@@ -508,6 +469,32 @@ public class CreateGUI implements InventoryHolder, Listener {
         String onlineStatus = config.getString(onlineStatusPath + ".online", "&7Status: &aOnline");
         String offlineStatus = config.getString(onlineStatusPath + ".offline", "&7Status: &cOffline");
         String lastSeenStatus = config.getString(onlineStatusPath + ".last-seen", "&7Last Seen: &e%last_seen% ago");
+
+        int startIndex = currentPage * playerHeadSlots.length;
+        int endIndex = Math.min(startIndex + playerHeadSlots.length, availablePlayers.size());
+        UUID selectedTargetUUID = session.hasTarget() ? session.getTargetUUID() : null;
+        int selectedSlot = moveToFirstSlot && selectedTargetUUID != null ? playerHeadSlots[0] : -1;
+
+        if (moveToFirstSlot && selectedTargetUUID != null) {
+            int selectedIndex = -1;
+            for (int i = 0; i < availablePlayers.size(); i++) {
+                if (availablePlayers.get(i).getUniqueId().equals(selectedTargetUUID)) {
+                    selectedIndex = i;
+                    break;
+                }
+            }
+            if (selectedIndex != -1 && selectedIndex >= startIndex && selectedIndex < endIndex) {
+                Collections.swap(availablePlayers, selectedIndex, startIndex);
+                debugManager.logDebug("[DEBUG - CreateGUI] Moved selected player " + availablePlayers.get(startIndex).getName() + " to first slot " + playerHeadSlots[0]);
+            } else if (selectedIndex != -1) {
+                availablePlayers.remove(selectedIndex);
+                availablePlayers.add(0, Bukkit.getOfflinePlayer(selectedTargetUUID));
+                startIndex = 0;
+                currentPage = 0;
+                endIndex = Math.min(playerHeadSlots.length, availablePlayers.size());
+                debugManager.logDebug("[DEBUG - CreateGUI] Moved selected player to first position and reset to page 0");
+            }
+        }
 
         for (int i = startIndex; i < endIndex; i++) {
             int slotIndex = i - startIndex;
@@ -522,8 +509,7 @@ public class CreateGUI implements InventoryHolder, Listener {
                 debugManager.logWarning("[DEBUG - CreateGUI] Failed to get SkullMeta for player " + targetPlayer.getName());
                 continue;
             }
-            boolean isSelected = session.hasTarget() && session.getTargetUUID() != null &&
-                    session.getTargetUUID().equals(targetPlayer.getUniqueId());
+            boolean isSelected = selectedTargetUUID != null && selectedTargetUUID.equals(targetPlayer.getUniqueId());
             int bountyCount = plugin.getBountyManager().getBountiesOnTarget(targetPlayer.getUniqueId()).size();
             String status;
             if (targetPlayer.isOnline()) {
@@ -532,19 +518,12 @@ public class CreateGUI implements InventoryHolder, Listener {
                 long lastPlayed = targetPlayer.getLastPlayed();
                 status = lastPlayed > 0 ? lastSeenStatus.replace("%last_seen%", TimeFormatter.formatTimestampToAgo(lastPlayed)) : offlineStatus;
             }
-            PlaceholderContext context = PlaceholderContext.create()
-                    .player(player) // Ensure player context for PlaceholderAPI
-                    .target(targetPlayer.getUniqueId())
-                    .bountyCount(bountyCount)
-                    .onlineStatus(status);
+            PlaceholderContext context = PlaceholderContext.create().player(player).target(targetPlayer.getUniqueId()).bountyCount(bountyCount).onlineStatus(status);
             String name = isSelected ? selectedName : (targetPlayer.isOnline() ? onlineName : offlineName);
             meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', Placeholders.apply(name, context)));
             List<String> lore = isSelected ? selectedLore : notSelectedLore;
             meta.setLore(Placeholders.apply(lore, context));
-            if ((isSelected && selectedGlow) || (!isSelected && notSelectedGlow)) {
-                meta.addEnchant(Enchantment.DURABILITY, 1, true);
-                meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
-            }
+            VersionUtils.applyGlow(head, isSelected ? selectedGlow : notSelectedGlow);
             head.setItemMeta(meta);
             inventory.setItem(playerHeadSlots[slotIndex], head);
         }
@@ -651,7 +630,7 @@ public class CreateGUI implements InventoryHolder, Listener {
 
     /**
      * Adds bottom row buttons to the GUI
-     * // note: Places configurable buttons like confirm, cancel, and add-items, applies bounty-session-glow for confirm-button-filler
+     * // note: Places configurable buttons like confirm, cancel, add-items, and pause-button when session is active, applies bounty-session-glow for confirm-button-filler
      */
     private void addBottomRowButtons() {
         FileConfiguration config = plugin.getCreateGUIConfig();
@@ -683,6 +662,9 @@ public class CreateGUI implements InventoryHolder, Listener {
         buttonDefaults.put("total-bounty-value-button", 49);
         buttonDefaults.put("add-experience-button", 47);
         buttonDefaults.put("add-time-button", 51);
+        if (config.getBoolean("pause-button.enabled", false) && hasSession) {
+            buttonDefaults.put("pause-button", 4);
+        }
 
         int totalButtons = buttonDefaults.size();
         int successfulButtons = 0;
@@ -727,21 +709,7 @@ public class CreateGUI implements InventoryHolder, Listener {
                     continue;
                 }
 
-                PlaceholderContext context = PlaceholderContext.create()
-                        .player(player)
-                        .bountyCount(0)
-                        .moneyValue(moneyValue)
-                        .expValue(expValue)
-                        .timeValue(duration)
-                        .itemCount(itemCount)
-                        .itemValue(itemValue)
-                        .taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
-                        .taxAmount(moneyValue * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
-                        .moneyLine("&7Money: &a" + CurrencyUtil.formatMoney(moneyValue))
-                        .experienceLine("&7Experience: &e" + (expValue == 0 ? "0 XP Levels" : expValue + " XP Level" + (expValue > 1 ? "s" : "")))
-                        .totalBountyAmount(totalValue)
-                        .currentPage(0)
-                        .totalPages(1);
+                PlaceholderContext context = PlaceholderContext.create().player(player).bountyCount(0).moneyValue(moneyValue).expValue(expValue).timeValue(duration).itemCount(itemCount).itemValue(itemValue).taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0)).taxAmount(moneyValue * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0)).moneyLine("&7Money: &a" + CurrencyUtil.formatMoney(moneyValue)).experienceLine("&7Experience: &e" + (expValue == 0 ? "0 XP Levels" : expValue + " XP Level" + (expValue > 1 ? "s" : ""))).totalBountyAmount(totalValue).currentPage(0).totalPages(1);
 
                 String name = config.getString(configPath + ".name", "&c&lReturn to the Bounty GUI");
                 if (name == null || name.isEmpty()) {
@@ -756,9 +724,6 @@ public class CreateGUI implements InventoryHolder, Listener {
                 List<String> lore = config.getStringList(configPath + ".lore");
                 if (lore.isEmpty()) {
                     debugManager.logWarning("[DEBUG - CreateGUI] Empty lore at " + configPath + ".lore, using default");
-                    FileConfiguration messagesConfig = plugin.getMessagesConfig();
-                    String warningMessage = messagesConfig.getString("missing-config", "Message not found: %path%");
-                    player.sendMessage(ChatColor.translateAlternateColorCodes('&', warningMessage.replace("%path%", configPath + ".lore")));
                     lore = Arrays.asList("&7Click to return to Bounty GUI");
                 }
                 meta.setLore(Placeholders.apply(lore, context));
@@ -828,13 +793,68 @@ public class CreateGUI implements InventoryHolder, Listener {
                 }
                 button.setItemMeta(meta);
             }
+            // Handle pause button: only create if enabled and session is active
+            else if (buttonName.equals("pause-button")) {
+                String configPath = "pause-button";
+                String materialName = config.getString(configPath + ".material", "CLOCK");
+                button = VersionUtils.getXMaterialItemStack(materialName);
+                if (button.getType() == Material.STONE && !materialName.equalsIgnoreCase("STONE")) {
+                    debugManager.logWarning("[DEBUG - CreateGUI] Invalid material '" + materialName + "' for pause-button, using CLOCK");
+                    if (session != null) {
+                        session.addButtonFailure(buttonName, "Invalid material '" + materialName + "'");
+                    }
+                    button = VersionUtils.getXMaterialItemStack("CLOCK");
+                }
+
+                ItemMeta meta = button.getItemMeta();
+                if (meta == null) {
+                    debugManager.logWarning("[DEBUG - CreateGUI] Failed to get ItemMeta for pause-button");
+                    if (session != null) {
+                        session.addButtonFailure(buttonName, "Failed to get ItemMeta");
+                    }
+                    inventory.setItem(slot, button);
+                    successfulButtons++;
+                    protectedSlots.add(slot);
+                    continue;
+                }
+
+                PlaceholderContext context = PlaceholderContext.create().player(player).bountyCount(0).moneyValue(moneyValue).expValue(expValue).timeValue(duration).itemCount(itemCount).itemValue(itemValue).taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0)).taxAmount(moneyValue * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0)).moneyLine("&7Money: &a" + CurrencyUtil.formatMoney(moneyValue)).experienceLine("&7Experience: &e" + (expValue == 0 ? "0 XP Levels" : expValue + " XP Level" + (expValue > 1 ? "s" : ""))).totalBountyAmount(totalValue).currentPage(0).totalPages(1);
+
+                String name = config.getString(configPath + ".name", "&e&lPause Session");
+                if (name == null || name.isEmpty()) {
+                    debugManager.logWarning("[DEBUG - CreateGUI] Invalid or empty name at " + configPath + ".name, using default");
+                    FileConfiguration messagesConfig = plugin.getMessagesConfig();
+                    String warningMessage = messagesConfig.getString("missing-config", "Message not found: %path%");
+                    player.sendMessage(ChatColor.translateAlternateColorCodes('&', warningMessage.replace("%path%", configPath + ".name")));
+                    name = "&e&lPause Session";
+                }
+                meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', Placeholders.apply(name, context)));
+
+                List<String> lore = config.getStringList(configPath + ".lore");
+                if (lore.isEmpty()) {
+                    debugManager.logWarning("[DEBUG - CreateGUI] Empty lore at " + configPath + ".lore, using default");
+                    FileConfiguration messagesConfig = plugin.getMessagesConfig();
+                    String warningMessage = messagesConfig.getString("missing-config", "Message not found: %path%");
+                    player.sendMessage(ChatColor.translateAlternateColorCodes('&', warningMessage.replace("%path%", configPath + ".lore")));
+                    lore = Arrays.asList("&7Click to pause your bounty creation", "&7session and return to the main menu");
+                }
+                meta.setLore(Placeholders.apply(lore, context));
+
+                boolean enchantmentGlow = config.getBoolean(configPath + ".enchantment-glow", true);
+                if (enchantmentGlow) {
+                    meta.addEnchant(Enchantment.DURABILITY, 1, true);
+                    meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+                }
+                if (VersionUtils.isPost19()) {
+                    meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
+                }
+                button.setItemMeta(meta);
+            }
             // Handle special button types
             else if (buttonName.equals("add-items-button")) {
-                button = createAddItemsButton(config, session, moneyValue, expValue, timeValue,
-                        itemCount, itemValue, totalValue, duration);
+                button = createAddItemsButton(config, session, moneyValue, expValue, timeValue, itemCount, itemValue, totalValue, duration);
             } else {
-                button = createConfigurableButton(buttonName, config, session, moneyValue,
-                        expValue, timeValue, itemCount, itemValue, totalValue, duration);
+                button = createConfigurableButton(buttonName, config, session, moneyValue, expValue, timeValue, itemCount, itemValue, totalValue, duration);
             }
 
             if (button != null && button.getType() != Material.AIR) {
@@ -864,109 +884,110 @@ public class CreateGUI implements InventoryHolder, Listener {
 
     /**
      * Creates a configurable button with full placeholder support
-     * // note: Generates GUI button with customizable appearance
+     * // note: Generates GUI button with customizable appearance from CreateGUI.yml Plugin-Items
      */
-    private ItemStack createConfigurableButton(String buttonName, FileConfiguration config, BountyCreationSession session,
-                                               double moneyValue, int expValue, String timeValue, int itemCount,
-                                               double itemValue, double totalValue, String duration) {
+    private ItemStack createConfigurableButton(String buttonName, FileConfiguration config, BountyCreationSession session, double moneyValue, int expValue, String timeValue, int itemCount, double itemValue, double totalValue, String duration) {
         DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
+        String path = "Plugin-Items." + buttonName;
         ItemStack button = null;
         String failureReason = null;
 
-        // Handle total-bounty-value-button specially when a target is selected
-        if (buttonName.equals("total-bounty-value-button") && session != null && session.getTargetUUID() != null) {
-            String path = buttonName + ".target-selected";
-            OfflinePlayer targetPlayer = Bukkit.getOfflinePlayer(session.getTargetUUID());
-            String targetName = targetPlayer.getName() != null ? targetPlayer.getName() : "Unknown";
-            String materialName = config.getString(path + ".material", "PLAYER_HEAD");
-            if (!config.contains(path)) {
-                debugManager.logWarning("[DEBUG - CreateGUI] Missing 'target-selected' section for " + buttonName + " in CreateGUI.yml, using default PLAYER_HEAD");
-            }
-            button = SkullUtils.createVersionAwarePlayerHead(targetPlayer);
-            if (button == null || !VersionUtils.isPlayerHead(button)) {
-                debugManager.logWarning("[DEBUG - CreateGUI] Failed to create player head for " + targetName + ", using fallback material PAPER");
-                button = VersionUtils.getXMaterialItemStack("PAPER");
-                failureReason = "Failed to create player head";
-            }
-        } else {
-            String materialName = config.getString(buttonName + ".material", buttonName.equals("add-money-button") ? "EMERALD" : "STONE");
-            button = VersionUtils.getXMaterialItemStack(materialName);
-            if (button.getType() == Material.STONE && !materialName.equalsIgnoreCase("STONE")) {
-                debugManager.logWarning("[DEBUG - CreateGUI] Invalid material '" + materialName + "' for " + buttonName + ", using " + (buttonName.equals("add-money-button") ? "EMERALD" : "STONE"));
-                button = buttonName.equals("add-money-button") ? new ItemStack(Material.EMERALD) : new ItemStack(Material.STONE);
-                failureReason = "Invalid material '" + materialName + "'";
-            }
+        boolean isTargetSelected = session != null && session.getTargetUUID() != null;
+        String materialPath = isTargetSelected && buttonName.equals("total-bounty-value-button") ? path + ".target-selected.material" : path + ".material";
+        String namePath = isTargetSelected && buttonName.equals("total-bounty-value-button") ? path + ".target-selected.name" : path + ".name";
+        String lorePath = isTargetSelected && buttonName.equals("total-bounty-value-button") ? path + ".target-selected.lore" : path + ".lore";
+        String glowPath = isTargetSelected && buttonName.equals("total-bounty-value-button") ? path + ".target-selected.enchantment-glow" : path + ".enchantment-glow";
+
+        boolean isNoSession = session != null && !session.hasChanges() && buttonName.equals("cancel-button");
+        if (isNoSession) {
+            materialPath = path + ".no-session.material";
+            namePath = path + ".no-session.name";
+            lorePath = path + ".no-session.lore";
+            glowPath = path + ".no-session.enchantment-glow";
         }
 
-        if (button == null) {
-            debugManager.logWarning("[DEBUG - CreateGUI] Failed to create button " + buttonName + ", button is null");
-            failureReason = "Button creation returned null";
-            return new ItemStack(Material.STONE); // Fallback to STONE to ensure non-null item
+        Material defaultMaterial;
+        switch (buttonName) {
+            case "add-money-button":
+                defaultMaterial = Material.EMERALD;
+                break;
+            case "add-experience-button":
+                defaultMaterial = VersionUtils.getExperienceBottleMaterial();
+                break;
+            case "add-time-button":
+                defaultMaterial = VersionUtils.getClockMaterial();
+                break;
+            case "total-bounty-value-button":
+                defaultMaterial = isTargetSelected ? VersionUtils.getPlayerHeadMaterial() : Material.PAPER;
+                break;
+            case "confirm-button":
+                defaultMaterial = Material.LIME_DYE;
+                break;
+            case "cancel-button":
+                defaultMaterial = isNoSession ? Material.BARRIER : Material.RED_DYE;
+                break;
+            default:
+                defaultMaterial = Material.STONE;
+        }
+
+        String materialName = config.getString(materialPath, defaultMaterial.name());
+        button = new ItemStack(VersionUtils.getMaterialSafely(materialName, defaultMaterial.name()));
+        if (button.getType() == Material.STONE && !materialName.equalsIgnoreCase("STONE")) {
+            debugManager.logWarning("[DEBUG - CreateGUI] Invalid material '" + materialName + "' at " + materialPath + ", using default " + defaultMaterial.name());
+            failureReason = "Invalid material '" + materialName + "'";
+            button = new ItemStack(defaultMaterial);
+        }
+
+        if (buttonName.equals("total-bounty-value-button") && isTargetSelected) {
+            OfflinePlayer targetPlayer = Bukkit.getOfflinePlayer(session.getTargetUUID());
+            button = SkullUtils.createVersionAwarePlayerHead(targetPlayer);
+            if (button == null || !VersionUtils.isPlayerHead(button)) {
+                debugManager.logWarning("[DEBUG - CreateGUI] Failed to create player head for " + (targetPlayer.getName() != null ? targetPlayer.getName() : "Unknown") + ", using fallback material PAPER");
+                button = new ItemStack(Material.PAPER);
+                failureReason = "Failed to create player head";
+            }
         }
 
         ItemMeta meta = button.getItemMeta();
         if (meta == null) {
-            debugManager.logWarning("[DEBUG - CreateGUI] Failed to get ItemMeta for button " + buttonName + ", creating default meta");
+            debugManager.logWarning("[DEBUG - CreateGUI] Failed to get ItemMeta for button " + buttonName + " at " + materialPath);
+            failureReason = "Failed to get ItemMeta";
+            button = new ItemStack(defaultMaterial);
             meta = Bukkit.getItemFactory().getItemMeta(button.getType());
             if (meta == null) {
-                debugManager.logWarning("[DEBUG - CreateGUI] Failed to create default ItemMeta for " + buttonName + ", using STONE with default meta");
-                button = new ItemStack(Material.STONE);
-                meta = Bukkit.getItemFactory().getItemMeta(button.getType());
+                debugManager.logWarning("[DEBUG - CreateGUI] Failed to create default ItemMeta for " + buttonName + ", using " + defaultMaterial.name() + " with default meta");
                 failureReason = "Failed to create ItemMeta";
             }
         }
 
-        PlaceholderContext context = PlaceholderContext.create()
-                .player(player)
-                .bountyCount(0)
-                .moneyValue(moneyValue)
-                .expValue(expValue)
-                .timeValue(duration)
-                .itemCount(itemCount)
-                .itemValue(itemValue)
-                .taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
-                .taxAmount(moneyValue * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
-                .moneyLine("&7Money: &a" + CurrencyUtil.formatMoney(moneyValue))
-                .experienceLine("&7Experience: &e" + (expValue == 0 ? "0 XP Levels" : expValue + " XP Level" + (expValue > 1 ? "s" : "")))
-                .totalBountyAmount(totalValue)
-                .currentPage(0)
-                .totalPages(1);
-        if (session != null && session.getTargetUUID() != null) {
+        PlaceholderContext context = PlaceholderContext.create().player(player).bountyCount(0).moneyValue(moneyValue).expValue(expValue).timeValue(duration).itemCount(itemCount).itemValue(itemValue).taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0)).taxAmount(moneyValue * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0)).moneyLine("&7Money: &a" + CurrencyUtil.formatMoney(moneyValue)).experienceLine("&7Experience: &e" + (expValue == 0 ? "0 XP Levels" : expValue + " XP Level" + (expValue > 1 ? "s" : ""))).totalBountyAmount(totalValue).currentPage(0).totalPages(1);
+        if (isTargetSelected) {
             context = context.target(session.getTargetUUID());
         }
 
-        String namePath = buttonName + (buttonName.equals("total-bounty-value-button") && session != null && session.getTargetUUID() != null ? ".target-selected.name" : ".name");
-        String lorePath = buttonName + (buttonName.equals("total-bounty-value-button") && session != null && session.getTargetUUID() != null ? ".target-selected.lore" : ".lore");
-        String name = config.getString(namePath, buttonName.equals("add-money-button") ? "&a&lAdd Money" : "Button");
+        String defaultName = isNoSession ? "&c&lMain Menu" : "&c" + buttonName.replace("-", " ");
+        String name = config.getString(namePath, defaultName);
         if (name == null || name.isEmpty()) {
-            debugManager.logWarning("[DEBUG - CreateGUI] Invalid or empty name at " + namePath + ", using default");
-            FileConfiguration messagesConfig = plugin.getMessagesConfig();
-            String warningMessage = messagesConfig.getString("missing-config", "Message not found: %path%");
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', warningMessage.replace("%path%", namePath)));
-            name = buttonName.equals("add-money-button") ? "&a&lAdd Money" : "Button";
+            debugManager.logWarning("[DEBUG - CreateGUI] Invalid or empty name at " + namePath + ", using default '" + defaultName + "'");
+            name = defaultName;
+            failureReason = failureReason != null ? failureReason + ", Invalid name" : "Invalid name";
         }
-
-        String processedName = Placeholders.apply(name, context);
-        meta.setDisplayName(processedName);
+        meta.setDisplayName(MessageUtils.formatMessage(Placeholders.apply(name, context), player));
 
         List<String> lore = config.getStringList(lorePath);
         if (lore.isEmpty()) {
             debugManager.logWarning("[DEBUG - CreateGUI] Empty lore at " + lorePath + ", using default for " + buttonName);
-            FileConfiguration messagesConfig = plugin.getMessagesConfig();
-            String warningMessage = messagesConfig.getString("missing-config", "Message not found: %path%");
-            player.sendMessage(ChatColor.translateAlternateColorCodes('&', warningMessage.replace("%path%", lorePath)));
-            lore = buttonName.equals("add-money-button") ? Arrays.asList("&7Click to add money to the bounty") : Arrays.asList("&7Click to interact with " + buttonName);
+            lore = isNoSession ? Arrays.asList("&7Return to the Main", "&7Bounty Menu", "", "&c&l(!) Click to return to the Main Menu!") : Collections.singletonList("&7" + buttonName.replace("-", " "));
+            failureReason = failureReason != null ? failureReason + ", Empty lore" : "Empty lore";
         }
+        meta.setLore(Placeholders.apply(lore, context).stream().map(line -> MessageUtils.formatMessage(line, player)).collect(Collectors.toList()));
 
-        List<String> processedLore = Placeholders.apply(lore, context);
-        meta.setLore(processedLore);
-
-        String glowPath = buttonName + (buttonName.equals("total-bounty-value-button") && session != null && session.getTargetUUID() != null ? ".target-selected.enchantment-glow" : ".enchantment-glow");
-        boolean enchantmentGlow = config.getBoolean(glowPath, buttonName.equals("add-money-button"));
-        if (enchantmentGlow) {
-            meta.addEnchant(Enchantment.DURABILITY, 1, true);
-            meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+        boolean enchantmentGlow = config.getBoolean(glowPath, buttonName.equals("total-bounty-value-button") || buttonName.equals("confirm-button"));
+        if (!config.contains(glowPath)) {
+            debugManager.logWarning("[DEBUG - CreateGUI] Missing enchantment-glow setting at " + glowPath + ", using default " + enchantmentGlow);
+            MessageUtils.sendFormattedMessage(player, "missing-config", PlaceholderContext.create().player(player).error(glowPath));
         }
+        VersionUtils.applyGlow(button, enchantmentGlow);
 
         if (VersionUtils.isPost19()) {
             meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
@@ -974,81 +995,78 @@ public class CreateGUI implements InventoryHolder, Listener {
 
         button.setItemMeta(meta);
 
-        // Store failure reason in session
         if (failureReason != null && session != null) {
             session.addButtonFailure(buttonName, failureReason);
         }
 
+        debugManager.logDebug("[DEBUG - CreateGUI] Created button '" + buttonName + "' with material " + button.getType().name());
         return button;
     }
 
     /**
      * Creates the special add-items button with dynamic content based on item count
-     * // note: Generates button for managing item rewards
+     * // note: Generates button for managing item rewards with configurable appearance from CreateGUI.yml Plugin-Items
      */
-    private ItemStack createAddItemsButton(FileConfiguration config, BountyCreationSession session,
-                                           double moneyValue, int expValue, String timeValue, int itemCount,
-                                           double itemValue, double totalValue, String duration) {
+    private ItemStack createAddItemsButton(FileConfiguration config, BountyCreationSession session, double moneyValue, int expValue, String timeValue, int itemCount, double itemValue, double totalValue, String duration) {
         DebugManager debugManager = BountiesPlus.getInstance().getDebugManager();
         String buttonName = "add-items-button";
+        String path = "Plugin-Items." + buttonName;
         String failureReason = null;
 
         boolean hasItems = itemCount > 0;
-        String configPath = hasItems ? "add-items-button.has-items" : "add-items-button.no-items";
-        String materialName = config.getString("add-items-button.material", "CHEST");
-        ItemStack button = VersionUtils.getXMaterialItemStack(materialName);
+        String configPath = hasItems ? path + ".has-items" : path + ".no-items";
+        String materialPath = hasItems ? configPath + ".material" : path + ".material";
+        String materialName = config.getString(materialPath, hasItems ? "ENDER_CHEST" : "CHEST");
+        Material defaultMaterial = hasItems ? Material.ENDER_CHEST : Material.CHEST;
+        ItemStack button = new ItemStack(VersionUtils.getMaterialSafely(materialName, defaultMaterial.name()));
 
-        if (button.getType() == Material.STONE && !materialName.equalsIgnoreCase("CHEST")) {
-            debugManager.logWarning("[DEBUG - CreateGUI] Invalid material '" + materialName + "' for add-items-button, using CHEST");
-            button = VersionUtils.getXMaterialItemStack("CHEST");
+        if (button.getType() == Material.STONE && !materialName.equalsIgnoreCase("STONE")) {
+            debugManager.logWarning("[DEBUG - CreateGUI] Invalid material '" + materialName + "' at " + materialPath + ", using default " + defaultMaterial.name());
+            button = new ItemStack(defaultMaterial);
             failureReason = "Invalid material '" + materialName + "'";
         }
 
         ItemMeta meta = button.getItemMeta();
         if (meta == null) {
-            debugManager.logWarning("[DEBUG - CreateGUI] Failed to get ItemMeta for add-items-button, using default item");
+            debugManager.logWarning("[DEBUG - CreateGUI] Failed to get ItemMeta for add-items-button at " + materialPath);
             failureReason = "Failed to get ItemMeta";
-            return button;
+            button = new ItemStack(defaultMaterial);
+            meta = Bukkit.getItemFactory().getItemMeta(button.getType());
+            if (meta == null) {
+                debugManager.logWarning("[DEBUG - CreateGUI] Failed to create default ItemMeta for add-items-button, using " + defaultMaterial.name() + " with default meta");
+                failureReason = "Failed to create ItemMeta";
+            }
         }
 
-        PlaceholderContext context = PlaceholderContext.create()
-                .player(player)
-                .bountyCount(0)
-                .moneyValue(moneyValue)
-                .expValue(expValue)
-                .timeValue(timeValue)
-                .itemCount(itemCount)
-                .itemValue(itemValue)
-                .taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
-                .taxAmount(moneyValue * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0))
-                .moneyLine("&7Money: &a" + CurrencyUtil.formatMoney(moneyValue))
-                .experienceLine("&7Experience: &e" + (expValue == 0 ? "0 XP Levels" : expValue + " XP Level" + (expValue > 1 ? "s" : "")))
-                .totalBountyAmount(totalValue)
-                .currentPage(0)
-                .totalPages(1);
+        PlaceholderContext context = PlaceholderContext.create().player(player).bountyCount(0).moneyValue(moneyValue).expValue(expValue).timeValue(duration).itemCount(itemCount).itemValue(itemValue).taxRate(plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0)).taxAmount(moneyValue * plugin.getConfig().getDouble("bounty-place-tax-rate", 0.0)).moneyLine("&7Money: &a" + CurrencyUtil.formatMoney(moneyValue)).experienceLine("&7Experience: &e" + (expValue == 0 ? "0 XP Levels" : expValue + " XP Level" + (expValue > 1 ? "s" : ""))).totalBountyAmount(totalValue).currentPage(0).totalPages(1);
+        if (session != null && session.getTargetUUID() != null) {
+            context = context.target(session.getTargetUUID());
+        }
 
-        String name = config.getString(configPath + ".name", "Add Items");
+        String namePath = configPath + ".name";
+        String name = config.getString(namePath, hasItems ? "&6&lEdit Items (&e%bountiesplus_item_count%&6&l)" : "&b&lAdd Items");
         if (name == null || name.isEmpty()) {
-            debugManager.logWarning("[DEBUG - CreateGUI] Invalid or empty name for add-items-button at " + configPath + ", using default");
-            name = "Add Items";
+            debugManager.logWarning("[DEBUG - CreateGUI] Invalid or empty name at " + namePath + ", using default");
+            name = hasItems ? "&6&lEdit Items (&e%bountiesplus_item_count%&6&l)" : "&b&lAdd Items";
+            failureReason = failureReason != null ? failureReason + ", Invalid name" : "Invalid name";
         }
+        meta.setDisplayName(MessageUtils.formatMessage(Placeholders.apply(name, context), player));
 
-        String processedName = Placeholders.apply(name, context);
-        meta.setDisplayName(processedName);
-
-        List<String> lore = config.getStringList(configPath + ".lore");
+        String lorePath = configPath + ".lore";
+        List<String> lore = config.getStringList(lorePath);
         if (lore.isEmpty()) {
-            lore = Arrays.asList("&7Click to " + (hasItems ? "manage" : "add") + " item rewards", "&7Items: &b%bountiesplus_item_count%");
+            debugManager.logWarning("[DEBUG - CreateGUI] Empty lore at " + lorePath + ", using default for add-items-button");
+            lore = hasItems ? Arrays.asList("&7You have &e%bountiesplus_item_count% items", "&7in this bounty worth &e%bountiesplus_item_value%", "", "&7Drag and Drop more items", "&7into the GUI to add them", "", "&7Right-click items to remove them", "&7Left-click here to view all items", "", "&6&l(!) Click to edit items in the Bounty!") : Arrays.asList("&7Drag and Drop items", "&7into the GUI to add them", "&7to the bounty", "", "&7You can place items in the", "&7empty slots inside the GUI", "", "&7Right-click items to remove them", "", "&b&l(!) Click to add items to the Bounty!");
+            failureReason = failureReason != null ? failureReason + ", Empty lore" : "Empty lore";
         }
-
-        List<String> processedLore = Placeholders.apply(lore, context);
-        meta.setLore(processedLore);
+        meta.setLore(Placeholders.apply(lore, context).stream().map(line -> MessageUtils.formatMessage(line, player)).collect(Collectors.toList()));
 
         boolean enchantmentGlow = config.getBoolean(configPath + ".enchantment-glow", hasItems);
-        if (enchantmentGlow) {
-            meta.addEnchant(Enchantment.DURABILITY, 1, true);
-            meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
+        if (!config.contains(configPath + ".enchantment-glow")) {
+            debugManager.logWarning("[DEBUG - CreateGUI] Missing enchantment-glow setting at " + configPath + ".enchantment-glow, using default " + enchantmentGlow);
+            MessageUtils.sendFormattedMessage(player, "missing-config", PlaceholderContext.create().player(player).error(configPath + ".enchantment-glow"));
         }
+        VersionUtils.applyGlow(button, enchantmentGlow);
 
         if (VersionUtils.isPost19()) {
             meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
@@ -1056,19 +1074,17 @@ public class CreateGUI implements InventoryHolder, Listener {
 
         button.setItemMeta(meta);
 
-        // Store failure reason in session
         if (failureReason != null && session != null) {
             session.addButtonFailure(buttonName, failureReason);
         }
 
+        debugManager.logDebug("[DEBUG - CreateGUI] Created button 'add-items-button' with material " + button.getType().name());
         return button;
     }
 
-// file: java/tony26/bountiesPlus/GUIs/CreateGUI.java
-
     /**
      * Handles inventory click events for the CreateGUI
-     * // note: Manages button and player head interactions
+     * // note: Manages button, player head, and pause-button interactions
      */
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
@@ -1154,6 +1170,9 @@ public class CreateGUI implements InventoryHolder, Listener {
             handleAddItemsButton(clickingPlayer, newSession);
         } else if (slot == config.getInt("cancel-button.slot", 46)) {
             handleCancelButton(clickingPlayer);
+        } else if (slot == config.getInt("pause-button.slot", 4) && config.getBoolean("pause-button.enabled", false)) {
+            BountyCreationSession newSession = BountyCreationSession.getOrCreateSession(clickingPlayer);
+            handlePauseButton(clickingPlayer, newSession);
         } else if (VersionUtils.isPlayerHead(clickedItem)) {
             BountyCreationSession newSession = BountyCreationSession.getOrCreateSession(clickingPlayer);
             handlePlayerHeadClick(clickingPlayer, clickedItem, newSession);
@@ -1192,10 +1211,7 @@ public class CreateGUI implements InventoryHolder, Listener {
         double totalCost = money + taxAmount;
         Economy economy = BountiesPlus.getEconomy();
         if (economy != null && !economy.has(player, totalCost)) {
-            PlaceholderContext context = PlaceholderContext.create()
-                    .player(player)
-                    .moneyValue(totalCost)
-                    .taxAmount(taxAmount);
+            PlaceholderContext context = PlaceholderContext.create().player(player).moneyValue(totalCost).taxAmount(taxAmount);
             MessageUtils.sendFormattedMessage(player, "bounty-insufficient-funds", context);
             debugManager.logDebug("[CreateGUI] Insufficient funds for " + player.getName() + ": needs $" + totalCost);
             return;
@@ -1204,10 +1220,7 @@ public class CreateGUI implements InventoryHolder, Listener {
         boolean useXpLevels = plugin.getConfig().getBoolean("bounties.use-xp-levels", false);
         int playerXp = useXpLevels ? player.getLevel() : player.getTotalExperience();
         if (experienceLevels > 0 && playerXp < experienceLevels) {
-            PlaceholderContext context = PlaceholderContext.create()
-                    .player(player)
-                    .expValue(experienceLevels)
-                    .expValue(playerXp);
+            PlaceholderContext context = PlaceholderContext.create().player(player).expValue(experienceLevels).expValue(playerXp);
             MessageUtils.sendFormattedMessage(player, "no-experience-levels", context);
             debugManager.logDebug("[CreateGUI] Insufficient XP for " + player.getName() + ": needs " + experienceLevels);
             return;
@@ -1246,24 +1259,16 @@ public class CreateGUI implements InventoryHolder, Listener {
                 String path = "bounties." + targetUUID + "." + player.getUniqueId();
                 config.set(path + ".xp", experienceLevels);
                 config.set(path + ".duration", durationMinutes);
-                List<String> itemStrings = itemRewards.stream()
-                        .filter(item -> item != null && !item.getType().equals(Material.AIR))
-                        .map(item -> item.getType().name() + ":" + item.getAmount())
-                        .collect(Collectors.toList());
+                List<String> itemStrings = itemRewards.stream().filter(item -> item != null && !item.getType().equals(Material.AIR)).map(item -> item.getType().name() + ":" + item.getAmount()).collect(Collectors.toList());
                 config.set(path + ".items", itemStrings);
                 config.set("anonymous-bounties." + targetUUID + "." + player.getUniqueId(), isAnonymous);
                 plugin.saveEverything();
             }
-            debugManager.logDebug("[CreateGUI] Complex bounty created by " + player.getName() + " on " + session.getTargetName() +
-                    " - Money: $" + money + ", XP: " + experienceLevels + " levels, Items: " + itemRewards.size() + ", Anonymous: " + isAnonymous);
+            debugManager.logDebug("[CreateGUI] Complex bounty created by " + player.getName() + " on " + session.getTargetName() + " - Money: $" + money + ", XP: " + experienceLevels + " levels, Items: " + itemRewards.size() + ", Anonymous: " + isAnonymous);
         }
 
         String messageKey = durationMinutes > 0 ? "bounty-set-success-timed" : "bounty-set-success";
-        PlaceholderContext context = PlaceholderContext.create()
-                .player(player)
-                .target(targetUUID)
-                .moneyValue(money)
-                .taxAmount(taxAmount);
+        PlaceholderContext context = PlaceholderContext.create().player(player).target(targetUUID).moneyValue(money).taxAmount(taxAmount);
         if (durationMinutes > 0) {
             long timeValue = durationMinutes * 60;
             String unit = timeValue >= 24 * 60 * 60 ? "Days" : timeValue >= 60 * 60 ? "Hours" : "Minutes";
@@ -1276,10 +1281,7 @@ public class CreateGUI implements InventoryHolder, Listener {
 
         Player targetPlayer = Bukkit.getPlayer(targetUUID);
         if (targetPlayer != null && BountiesPlus.getInstance().getNotifySettings().getOrDefault(targetUUID, true)) {
-            MessageUtils.sendFormattedMessage(targetPlayer, "bounty-received", PlaceholderContext.create()
-                    .player(targetPlayer)
-                    .moneyValue(money)
-                    .setter(player.getUniqueId()));
+            MessageUtils.sendFormattedMessage(targetPlayer, "bounty-received", PlaceholderContext.create().player(targetPlayer).moneyValue(money).setter(player.getUniqueId()));
             debugManager.logDebug("[CreateGUI] Sent bounty-received message to " + targetPlayer.getName());
         } else {
             debugManager.logDebug("[CreateGUI] Skipped bounty-received message for target " + targetUUID + ": offline or notifications disabled");
@@ -1329,7 +1331,7 @@ public class CreateGUI implements InventoryHolder, Listener {
 
     /**
      * Handles clicks on player heads in the GUI
-     * // note: Selects or deselects bounty targets
+     * // note: Selects or deselects bounty targets and refreshes GUI for move-to-first-slot
      */
     private void handlePlayerHeadClick(Player player, ItemStack headItem, BountyCreationSession session) {
         if (!headItem.hasItemMeta() || !(headItem.getItemMeta() instanceof SkullMeta)) {
@@ -1358,8 +1360,7 @@ public class CreateGUI implements InventoryHolder, Listener {
             return;
         }
         String targetName = targetPlayer.getName() != null ? targetPlayer.getName() : "Unknown";
-        boolean isAlreadySelected = session.hasTarget() && session.getTargetUUID() != null &&
-                session.getTargetUUID().equals(targetPlayer.getUniqueId());
+        boolean isAlreadySelected = session.hasTarget() && session.getTargetUUID() != null && session.getTargetUUID().equals(targetPlayer.getUniqueId());
         if (isAlreadySelected) {
             session.setTargetPlayer(null);
             session.setTargetPlayerOffline(null);
@@ -1374,7 +1375,7 @@ public class CreateGUI implements InventoryHolder, Listener {
                 MessageUtils.sendFormattedMessage(player, "player-offline");
             }
         }
-        updateSessionDisplay(); // Refresh GUI to update skulls
+        refreshGUI(); // Refresh to apply move-to-first-slot
         player.updateInventory(); // Ensure inventory sync
     }
 
@@ -1421,10 +1422,7 @@ public class CreateGUI implements InventoryHolder, Listener {
         if (totalCost > 0 && plugin.getEconomy().getBalance(player) < totalCost) {
             FileConfiguration messagesConfig = plugin.getMessagesConfig();
             String errorMessage = messagesConfig.getString("bounty-insufficient-funds", "&cInsufficient funds! You need $%cost% (includes $%tax% tax)");
-            PlaceholderContext context = PlaceholderContext.create()
-                    .player(player)
-                    .withAmount(totalCost)
-                    .taxAmount(taxAmount);
+            PlaceholderContext context = PlaceholderContext.create().player(player).withAmount(totalCost).taxAmount(taxAmount);
             player.sendMessage(Placeholders.apply(errorMessage, context));
             return;
         }
@@ -1467,11 +1465,7 @@ public class CreateGUI implements InventoryHolder, Listener {
         // Send success message
         FileConfiguration messagesConfig = plugin.getMessagesConfig();
         String successMessage = messagesConfig.getString("bounty-set-success", "&aYou placed a bounty of &e%amount%&a on &e%target%&a! Tax of &e%tax%&a was deducted.");
-        PlaceholderContext context = PlaceholderContext.create()
-                .player(player)
-                .target(target.getUniqueId())
-                .withAmount(totalMoney)
-                .taxAmount(taxAmount);
+        PlaceholderContext context = PlaceholderContext.create().player(player).target(target.getUniqueId()).withAmount(totalMoney).taxAmount(taxAmount);
         player.sendMessage(Placeholders.apply(successMessage, context));
 
         // Send tax notification if applicable
@@ -1520,10 +1514,7 @@ public class CreateGUI implements InventoryHolder, Listener {
                 plugin.getLogger().warning("[DEBUG - CreateGUI] Invalid add-money-button.reopen-delay " + configReopenDelay + ", using default 100");
             }
 
-            PlaceholderContext context = PlaceholderContext.create()
-                    .player(player)
-                    .withAmount(minTotalCost)
-                    .taxAmount(minTaxAmount);
+            PlaceholderContext context = PlaceholderContext.create().player(player).withAmount(minTotalCost).taxAmount(minTaxAmount);
             MessageUtils.sendFormattedMessage(player, "bounty-insufficient-funds", context);
             if (session != null) {
                 session.setAwaitingInput(BountyCreationSession.InputType.NO_MONEY_TITLE);
@@ -1554,9 +1545,7 @@ public class CreateGUI implements InventoryHolder, Listener {
             debugManager.logDebug("[DEBUG - CreateGUI] Set MONEY input for player: " + player.getName() + ", session awaiting: " + session.getAwaitingInput().name());
         }
 
-        PlaceholderContext context = PlaceholderContext.create()
-                .player(player)
-                .moneyValue(session != null ? session.getMoney() : 0.0);
+        PlaceholderContext context = PlaceholderContext.create().player(player).moneyValue(session != null ? session.getMoney() : 0.0);
         MessageUtils.sendFormattedMessage(player, "add-money-prompt", context);
         player.closeInventory();
     }
@@ -1580,9 +1569,7 @@ public class CreateGUI implements InventoryHolder, Listener {
             int fadeOut = config.getInt("add-experience-button.title-duration.fade-out", 10);
             long reopenDelay = config.getLong("add-experience-button.reopen-delay", 60);
 
-            PlaceholderContext context = PlaceholderContext.create()
-                    .player(player)
-                    .expValue(session != null ? session.getExperience() : 0);
+            PlaceholderContext context = PlaceholderContext.create().player(player).expValue(session != null ? session.getExperience() : 0);
             MessageUtils.sendFormattedMessage(player, "no-experience-levels", context);
             if (session != null) {
                 session.setAwaitingInput(BountyCreationSession.InputType.NO_EXPERIENCE_TITLE);
@@ -1610,9 +1597,7 @@ public class CreateGUI implements InventoryHolder, Listener {
         } else {
             session.setAwaitingInput(BountyCreationSession.InputType.EXPERIENCE);
         }
-        PlaceholderContext context = PlaceholderContext.create()
-                .player(player)
-                .expValue(session != null ? session.getExperience() : 0);
+        PlaceholderContext context = PlaceholderContext.create().player(player).expValue(session != null ? session.getExperience() : 0);
         MessageUtils.sendFormattedMessage(player, "add-xp-prompt", context);
         debugManager.logDebug("[DEBUG - CreateGUI] Prompted " + player.getName() + " for experience input");
         player.closeInventory();
@@ -1639,16 +1624,14 @@ public class CreateGUI implements InventoryHolder, Listener {
         } else {
             session.setAwaitingInput(BountyCreationSession.InputType.TIME);
         }
-        PlaceholderContext context = PlaceholderContext.create()
-                .player(player)
-                .timeValue(session != null ? session.getFormattedTime() : "Default");
+        PlaceholderContext context = PlaceholderContext.create().player(player).timeValue(session != null ? session.getFormattedTime() : "Default");
         MessageUtils.sendFormattedMessage(player, "add-time-prompt", context);
         player.closeInventory();
     }
 
     /**
      * Handles the Total Bounty Value button click, prompting for player name input
-     * // note: Initiates chat prompt for selecting bounty target
+     * // note: Initiates chat prompt for selecting bounty target and refreshes GUI for move-to-first-slot
      */
     private void handleTotalValueButton(Player player, BountyCreationSession session) {
         DebugManager debugManager = plugin.getDebugManager();
@@ -1668,9 +1651,7 @@ public class CreateGUI implements InventoryHolder, Listener {
         }
         debugManager.logDebug("[DEBUG - CreateGUI] Set PLAYER_NAME input for " + player.getName());
 
-        PlaceholderContext context = PlaceholderContext.create()
-                .player(player)
-                .target(session != null ? session.getTargetUUID() : null);
+        PlaceholderContext context = PlaceholderContext.create().player(player).target(session != null ? session.getTargetUUID() : null);
         MessageUtils.sendFormattedMessage(player, "add-player-prompt", context);
         player.closeInventory();
         debugManager.logDebug("[DEBUG - CreateGUI] Sent player name prompt and closed GUI for " + player.getName());
@@ -1703,7 +1684,7 @@ public class CreateGUI implements InventoryHolder, Listener {
 
     /**
      * Handles inventory close events, managing session state
-     * // note: Controls session cleanup and forces GUI reopen for active sessions
+     * // note: Controls session cleanup, forces GUI reopen for active sessions, and allows pause to persist
      */
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
@@ -1740,6 +1721,16 @@ public class CreateGUI implements InventoryHolder, Listener {
             return;
         }
 
+        // Allow closing if session is paused
+        if (session.isPaused()) {
+            debugManager.logDebug("[DEBUG - CreateGUI] Allowing close for " + closingPlayer.getName() + ": session is paused");
+            cleanup();
+            Bukkit.getScheduler().runTaskLater(plugin, () -> {
+                BountyGUI.openBountyGUI(closingPlayer, BountyGUI.getFilterHighToLow(), BountyGUI.getShowOnlyOnline(), BountyGUI.getCurrentPage());
+            }, 3L);
+            return;
+        }
+
         // Allow closing if awaiting input for prompts
         if (session.isAwaitingInput()) {
             debugManager.logDebug("[DEBUG - CreateGUI] Preserving session for " + closingPlayer.getName() + ": awaiting input type " + session.getAwaitingInput().name());
@@ -1759,8 +1750,8 @@ public class CreateGUI implements InventoryHolder, Listener {
             boolean titleEnabled = config.getBoolean("close-with-session.enabled", true);
 
             if (titleEnabled) {
-                String title = config.getString("close-with-session.title", "&cCancel Session Required");
-                String subtitle = config.getString("close-with-session.subtitle", "&7You must cancel your Bounty Creation Session Before closing the GUI.");
+                String title = config.getString("close-with-session.title", "&c&l&nCANCEL&c you're Bounty");
+                String subtitle = config.getString("close-with-session.subtitle", "&7Before closing the GUI");
                 int fadeIn = config.getInt("close-with-session.title-duration.fade-in", 20);
                 int stay = config.getInt("close-with-session.title-duration.stay", 60);
                 int fadeOut = config.getInt("close-with-session.title-duration.fade-out", 20);
@@ -1801,5 +1792,31 @@ public class CreateGUI implements InventoryHolder, Listener {
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             BountyGUI.openBountyGUI(closingPlayer, BountyGUI.getFilterHighToLow(), BountyGUI.getShowOnlyOnline(), BountyGUI.getCurrentPage());
         }, 3L);
+    }
+
+    /**
+     * Handles the Pause button click, pausing the session
+     * // note: Pauses the bounty creation session and closes the GUI
+     */
+    private void handlePauseButton(Player player, BountyCreationSession session) {
+        DebugManager debugManager = plugin.getDebugManager();
+        debugManager.logDebug("[DEBUG - CreateGUI] Pause button clicked by " + player.getName());
+
+        if (session == null || !session.hasChanges()) {
+            debugManager.logDebug("[DEBUG - CreateGUI] Ignored pause button click by " + player.getName() + ": no active session");
+            return;
+        }
+
+        FileConfiguration config = plugin.getCreateGUIConfig();
+        String messagePath = "pause-button.send-alert.session-paused";
+        String message = config.getString(messagePath, "&aBounty creation session paused. Reopen /bounty to resume.");
+        if (!config.contains(messagePath)) {
+            debugManager.logWarning("[DEBUG - CreateGUI] Missing message at " + messagePath + " in CreateGUI.yml, using default");
+        }
+        session.pauseSession();
+        String formattedMessage = MessageUtils.formatMessage(message, player, PlaceholderContext.create().player(player));
+        player.spigot().sendMessage(TextComponent.fromLegacyText(formattedMessage));
+        player.closeInventory();
+        debugManager.logDebug("[DEBUG - CreateGUI] Closed GUI for " + player.getName() + " after pausing session");
     }
 }

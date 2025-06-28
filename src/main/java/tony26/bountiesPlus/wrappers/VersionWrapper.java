@@ -47,6 +47,12 @@ public interface VersionWrapper {
     }
 
     /**
+     * Applies a glow effect to an item if enabled
+     * // note: Adds enchantment glow to the item for visual effect, version-safe for 1.8.8 and later
+     */
+    void applyGlow(ItemStack item, boolean glowEnabled);
+
+    /**
      * Creates a player head ItemStack using XMaterial
      */
     default ItemStack createPlayerHeadItem() {

@@ -13,6 +13,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.FireworkEffectMeta;
 import tony26.bountiesPlus.BountiesPlus;
+import tony26.bountiesPlus.wrappers.VersionWrapper;
+import tony26.bountiesPlus.wrappers.VersionWrapperFactory;
+
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
@@ -615,6 +618,24 @@ public class VersionUtils {
             }
         }
     }
+
+    /**
+     * Applies a glow effect to an item in a version-safe way
+     * // note: Uses VersionWrapper to apply enchantment glow to the item, safe for 1.8.8
+     */
+    public static void applyGlow(ItemStack item, boolean glowEnabled) {
+        if (item == null || item.getType() == Material.AIR || !glowEnabled) {
+            return;
+        }
+        VersionWrapper wrapper = VersionWrapperFactory.getWrapper();
+        try {
+            wrapper.applyGlow(item, glowEnabled);
+        } catch (Exception e) {
+            BountiesPlus.getInstance().getDebugManager().logWarning("[DEBUG - VersionUtils] Failed to apply glow to item " + item.getType().name() + ": " + e.getMessage());
+        }
+    }
+
+
 
     /**
      * Creates a boss bar in a version-safe way
